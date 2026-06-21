@@ -1,0 +1,7 @@
+# alias	provider	repo	file
+# Keep this file tab-separated. Use provider values: hf, modelscope.
+# The two default aliases are intentionally small enough for first Android QA.
+smollm2-135m-q4km	hf	bartowski/SmolLM2-135M-Instruct-GGUF	SmolLM2-135M-Instruct-Q4_K_M.gguf
+qwen2.5-0.5b-q4km	hf	Qwen/Qwen2.5-0.5B-Instruct-GGUF	qwen2.5-0.5b-instruct-q4_k_m.gguf
+qwen2.5-0.5b-q4km	modelscope	Qwen/Qwen2.5-0.5B-Instruct-GGUF	qwen2.5-0.5b-instruct-q4_k_m.gguf
+

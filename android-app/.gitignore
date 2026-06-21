@@ -1,0 +1,7 @@
+.gradle/
+.model-cache/
+.tools/
+app/.cxx/
+app/build/
+qa-output/
+

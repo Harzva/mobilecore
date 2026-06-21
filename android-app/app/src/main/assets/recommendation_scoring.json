@@ -1,0 +1,34 @@
+{
+  "defaults": {
+    "preference": "stability"
+  },
+  "profiles": {
+    "speed_first": {
+      "fit_weight": 0.30,
+      "speed_weight": 0.46,
+      "size_weight": 0.10,
+      "measured_speed_weight": 0.14,
+      "base_tps": 6.0,
+      "target_tps": 8.0,
+      "memory_penalty": 14.0
+    },
+    "stability_first": {
+      "fit_weight": 0.56,
+      "speed_weight": 0.18,
+      "size_weight": 0.16,
+      "measured_speed_weight": 0.10,
+      "base_tps": 4.5,
+      "target_tps": 5.0,
+      "memory_penalty": 22.0
+    },
+    "small_model_first": {
+      "fit_weight": 0.34,
+      "speed_weight": 0.16,
+      "size_weight": 0.40,
+      "measured_speed_weight": 0.10,
+      "base_tps": 4.2,
+      "target_tps": 4.0,
+      "memory_penalty": 10.0
+    }
+  }
+}

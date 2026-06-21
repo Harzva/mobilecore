@@ -1,0 +1,33 @@
+{
+  "id": "mobilecore-local",
+  "name": "MobileCore Local",
+  "displayName": "MobileCore（推嘛）本地模型",
+  "type": "openai-compatible",
+  "baseUrl": "http://127.0.0.1:8080/v1",
+  "apiKey": "local",
+  "defaultModel": "local-model",
+  "supportsStreaming": true,
+  "supportsTools": false,
+  "supportsEmbeddings": false,
+  "routes": {
+    "models": "/models",
+    "chatCompletions": "/chat/completions"
+  },
+  "mobilecore": {
+    "healthUrl": "http://127.0.0.1:8080/health",
+    "metricsUrl": "http://127.0.0.1:8080/metrics",
+    "benchmarkLatestUrl": "http://127.0.0.1:8080/mobilecore/benchmark/latest",
+    "role": "local-model-runtime",
+    "recommendedUsage": [
+      "offline-chat",
+      "short-summary",
+      "local-code-helper",
+      "privacy-sensitive-text"
+    ],
+    "notRecommendedForP0": [
+      "large-agent-loop",
+      "long-context-repo-editing",
+      "heavy-tool-calling"
+    ]
+  }
+}

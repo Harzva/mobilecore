@@ -1,0 +1,51 @@
+[
+  {
+    "file": "01_logo_pushbox_main.jpg",
+    "source": "a_clean_minimalist_logo_branding_presentation_on_1_batch_1.png",
+    "width": 1254,
+    "height": 1254,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "02_logo_brand_board.jpg",
+    "source": "a_clean_brand_identity_presentation_logo_board_i_2_batch_2.png",
+    "width": 1254,
+    "height": 1254,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "03_logo_pushbox_alt.jpg",
+    "source": "a_clean_minimal_branding_presentation_on_a_white_3_batch_3.png",
+    "width": 1254,
+    "height": 1254,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "04_ui_home_pushbox.jpg",
+    "source": "a_bright_clean_product_mockup_scene_a_mobile_pho_1_batch_1.png",
+    "width": 941,
+    "height": 1672,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "05_ui_models_pushbox.jpg",
+    "source": "a_clean_product_mockup_app_ui_screenshot_of_a_mo_2_batch_2.png",
+    "width": 941,
+    "height": 1672,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "06_ui_benchmark_pushbox.jpg",
+    "source": "a_clean_product_ui_app_screenshot_illustration_o_3_batch_3.png",
+    "width": 941,
+    "height": 1672,
+    "format": "JPEG quality=92"
+  },
+  {
+    "file": "07_ui_api_pushbox.jpg",
+    "source": "a_clean_pastel_mobile_app_ui_screenshot_mockup_4_batch_4.png",
+    "width": 941,
+    "height": 1672,
+    "format": "JPEG quality=92"
+  }
+]

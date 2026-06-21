@@ -1,0 +1,41 @@
+.DS_Store
+*.iml
+
+# Local machine / secrets
+.env
+.env.*
+local.properties
+agentworkos.local.toml
+
+# Build outputs
+.gradle/
+build/
+**/build/
+**/.cxx/
+*.apk
+*.aab
+
+# Android local runtime state
+android-app/.gradle/
+android-app/.model-cache/
+android-app/.tools/
+android-app/qa-output/
+
+# Large third-party and reference checkouts are restored locally.
+android-app/third_party/
+reference/
+
+# Models should be downloaded locally, not committed.
+*.gguf
+*.ggml
+*.safetensors
+*.bin
+
+# Generated bundles
+*.zip
+
+# Historical generated design backups; final assets remain in design-assets/ and docs/readme-assets/.
+design-assets/backup/
+
+# Internal transfer notes from planning sessions.
+docs/evidence/
