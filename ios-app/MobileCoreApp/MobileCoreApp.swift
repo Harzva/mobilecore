@@ -12,6 +12,56 @@ struct MobileCoreiOSApp: App {
     }
 }
 
+enum MobileCoreOperation: Equatable {
+    case idle
+    case importing(String)
+    case loading(String)
+    case chatting(String)
+
+    var isActive: Bool {
+        self != .idle
+    }
+
+    var title: String {
+        switch self {
+        case .idle:
+            return "Ready"
+        case .importing:
+            return "Importing model"
+        case .loading:
+            return "Loading model"
+        case .chatting:
+            return "Generating reply"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .idle:
+            return "Local runtime is ready."
+        case .importing(let fileName):
+            return fileName
+        case .loading(let modelId):
+            return modelId
+        case .chatting(let modelId):
+            return modelId
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .idle:
+            return "checkmark.circle.fill"
+        case .importing:
+            return "square.and.arrow.down"
+        case .loading:
+            return "cpu"
+        case .chatting:
+            return "message.badge.waveform"
+        }
+    }
+}
+
 @MainActor
 final class MobileCoreAppState: ObservableObject {
     private let modelManager = ModelManager()
@@ -25,9 +75,14 @@ final class MobileCoreAppState: ObservableObject {
     @Published var lastReply = ""
     @Published var lastMetrics = RuntimeMetrics()
     @Published var backendInfo = BackendInfo(id: "llama.cpp", name: "llama.cpp", version: "linked", mode: "objective-c++")
+    @Published var operation = MobileCoreOperation.idle
 
     var apiURL: String {
         "http://127.0.0.1:8080"
+    }
+
+    var isBusy: Bool {
+        operation.isActive
     }
 
     var modelDirectory: String {
@@ -47,22 +102,43 @@ final class MobileCoreAppState: ObservableObject {
     }
 
     func importModel(from url: URL) {
-        do {
-            let model = try modelManager.importModel(from: url)
-            refreshModels()
-            statusMessage = "Imported \(model.fileName)"
-        } catch {
-            statusMessage = error.localizedDescription
+        guard begin(.importing(url.lastPathComponent)) else {
+            return
+        }
+
+        let modelManager = self.modelManager
+        Task {
+            do {
+                let model = try await Task.detached(priority: .userInitiated) {
+                    try modelManager.importModel(from: url)
+                }.value
+                refreshModels()
+                statusMessage = "Imported \(model.fileName)"
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            operation = .idle
         }
     }
 
     func loadModel(_ model: ModelMetadata) {
-        do {
-            let result = try runtime.loadModel(path: model.path, options: LoadOptions())
-            refreshModels()
-            statusMessage = "Loaded \(result.modelId)"
-        } catch {
-            statusMessage = error.localizedDescription
+        guard begin(.loading(model.id)) else {
+            return
+        }
+
+        let runtime = self.runtime
+        let path = model.path
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try runtime.loadModel(path: path, options: LoadOptions())
+                }.value
+                refreshModels()
+                statusMessage = "Loaded \(result.modelId)"
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            operation = .idle
         }
     }
 
@@ -75,6 +151,10 @@ final class MobileCoreAppState: ObservableObject {
     }
 
     func unloadModel() {
+        guard !isBusy else {
+            statusMessage = "Wait for the current task to finish."
+            return
+        }
         runtime.unloadModel()
         refreshModels()
         statusMessage = "Model unloaded"
@@ -97,19 +177,42 @@ final class MobileCoreAppState: ObservableObject {
     }
 
     func runTestChat() {
-        do {
-            let model = runtime.metrics().activeModel == "none"
-                ? modelManager.defaultModelId(loadedPath: runtime.loadedModelPath)
-                : runtime.metrics().activeModel
-            let result = try runtime.chat(
-                messages: [ChatMessage(role: "user", content: "Hello from MobileCore iOS")],
-                options: ChatOptions(model: model, maxTokens: 64)
-            )
-            lastReply = result.message
-            refreshModels()
-            statusMessage = "Chat completed"
-        } catch {
-            statusMessage = error.localizedDescription
+        let metrics = runtime.metrics()
+        let model = metrics.activeModel == "none"
+            ? modelManager.defaultModelId(loadedPath: runtime.loadedModelPath)
+            : metrics.activeModel
+
+        guard begin(.chatting(model)) else {
+            return
         }
+
+        let runtime = self.runtime
+        Task {
+            do {
+                let result = try await Task.detached(priority: .userInitiated) {
+                    try runtime.chat(
+                        messages: [ChatMessage(role: "user", content: "Hello from MobileCore iOS")],
+                        options: ChatOptions(model: model, maxTokens: 64)
+                    )
+                }.value
+                lastReply = result.message
+                refreshModels()
+                statusMessage = "Reply ready"
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            operation = .idle
+        }
+    }
+
+    private func begin(_ nextOperation: MobileCoreOperation) -> Bool {
+        guard !operation.isActive else {
+            statusMessage = "Wait for the current task to finish."
+            return false
+        }
+
+        operation = nextOperation
+        statusMessage = nextOperation.title
+        return true
     }
 }
