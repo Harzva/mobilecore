@@ -4,8 +4,11 @@ import ai.mobilecore.service.MobileCoreService
 import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -55,12 +58,39 @@ class MainActivity : Activity() {
     private lateinit var probeBackendText: TextView
     private lateinit var preferenceLabelText: TextView
     private lateinit var recommendationContainer: LinearLayout
+    private lateinit var rootScrollView: ScrollView
+    private var modelsAnchor: View? = null
+    private var metricsAnchor: View? = null
+    private var apiAnchor: View? = null
     private var recommendationPreference = RecommendationPreference.STABILITY
     private val serviceHost = "127.0.0.1"
     private val servicePort = 8080
     private val notificationPermissionRequestCode = 1001
     private val importModelRequestCode = 1002
     private var pendingAfterNotificationPermission: (() -> Unit)? = null
+    private val pendingDownloads = mutableMapOf<Long, File>()
+    private val modelHubItems = listOf(
+        ModelHubItem(
+            provider = "HuggingFace",
+            shortName = "Qwen2.5 0.5B Q4",
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+        ),
+        ModelHubItem(
+            provider = "ModelScope",
+            shortName = "Qwen2.5 0.5B Q4",
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            url = "https://modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+        )
+    )
+    private val downloadCompleteReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+            val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+            val destination = pendingDownloads.remove(downloadId) ?: return
+            handleModelDownloadComplete(downloadId, destination)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,7 +103,7 @@ class MainActivity : Activity() {
             isAppearanceLightNavigationBars = true
         }
 
-        val scrollView = ScrollView(this).apply {
+        rootScrollView = ScrollView(this).apply {
             setBackgroundColor(Palette.background)
             isFillViewport = true
         }
@@ -83,8 +113,11 @@ class MainActivity : Activity() {
         }
 
         content.addView(buildHeader())
-        content.addView(space(18))
+        content.addView(space(14))
         content.addView(buildHeroCard())
+        content.addView(space(14))
+        content.addView(sectionTitle("模型获取", "HuggingFace · ModelScope"))
+        content.addView(buildModelHubCard())
         content.addView(space(18))
         content.addView(sectionTitle("本机体检", "根据设备能力给出推荐"))
         content.addView(buildDeviceProbeCard())
@@ -92,27 +125,44 @@ class MainActivity : Activity() {
         content.addView(sectionTitle("推荐模型", "优先推荐可稳定运行的 GGUF"))
         content.addView(buildRecommendationCard())
         content.addView(space(18))
-        content.addView(sectionTitle("Runtime Snapshot", "Local model status"))
+        val metricsTitle = sectionTitle("Runtime Snapshot", "Local model status")
+        metricsAnchor = metricsTitle
+        content.addView(metricsTitle)
         content.addView(buildMetricStrip())
         content.addView(space(18))
         content.addView(sectionTitle("Quick Actions", "Start API, import GGUF, load model"))
         content.addView(buildActionGrid())
         content.addView(space(18))
-        content.addView(buildRecentModelsCard())
+        val modelsCard = buildRecentModelsCard()
+        modelsAnchor = modelsCard
+        content.addView(modelsCard)
         content.addView(space(18))
-        content.addView(buildStatusCard())
+        val statusCard = buildStatusCard()
+        apiAnchor = statusCard
+        content.addView(statusCard)
         content.addView(space(18))
         content.addView(buildBottomNavigation())
 
-        scrollView.addView(
+        rootScrollView.addView(
             content,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
-        setContentView(scrollView)
+        setContentView(rootScrollView)
+        ContextCompat.registerReceiver(
+            this,
+            downloadCompleteReceiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         refreshRecommendationSnapshot()
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(downloadCompleteReceiver) }
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -126,7 +176,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             addView(
                 PushBoxMarkView(context),
-                LinearLayout.LayoutParams(dp(108), dp(86))
+                LinearLayout.LayoutParams(dp(86), dp(68))
             )
             addView(
                 LinearLayout(context).apply {
@@ -150,8 +200,8 @@ class MainActivity : Activity() {
                             )
                         }
                     )
-                    addView(label("推嘛 · MobileCore Runtime", 14f, Palette.muted, Typeface.NORMAL))
-                    addView(space(10))
+                    addView(label("推嘛 · MobileCore Runtime", 13f, Palette.muted, Typeface.NORMAL))
+                    addView(space(8))
                     runtimeChipText = label("On-device LLM Ready", 13f, Palette.mintDark, Typeface.BOLD)
                     addView(
                         chip(runtimeChipText, Palette.mintPale, Palette.mint),
@@ -170,43 +220,49 @@ class MainActivity : Activity() {
         return FrameLayout(this).apply {
             background = roundedGradient(
                 intArrayOf(Palette.mintWash, Palette.blueWash, Palette.lavenderWash),
-                22f
+                18f
             )
             elevation = dp(3).toFloat()
-            setPadding(dp(22), dp(22), dp(18), dp(18))
+            setPadding(dp(18), dp(18), dp(16), dp(16))
 
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(
-                        chip(
-                            label("Best pick", 12f, Palette.mintDark, Typeface.BOLD),
-                            Palette.mintPale,
-                            Palette.mint
-                        ),
-                        LinearLayout.LayoutParams(dp(104), dp(34))
-                    )
+                    setPadding(0, 0, dp(106), 0)
+                    addView(label("Run model\non your phone", 24f, Palette.ink, Typeface.BOLD))
+                    addView(space(7))
+                    addView(label("Import GGUF, run a local API, and keep prompts on device.", 13f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
                     addView(space(12))
-                    addView(label("MobileCore for\non-device LLM\ninference", 24f, Palette.ink, Typeface.BOLD))
-                    addView(space(8))
-                    addView(label("Run large models locally on your phone.", 14f, Palette.muted, Typeface.NORMAL))
-                    addView(space(14))
                     addView(
-                        pillButton("Start API", Palette.sky, Palette.blue) {
-                            ensureNotificationPermissionAndStartService()
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            addView(
+                                pillButton("Start API", Palette.sky, Palette.blue) {
+                                    ensureNotificationPermissionAndStartService()
+                                },
+                                LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
+                            )
+                            addView(
+                                pillButton("Import", Palette.mintDark, Palette.mint) {
+                                    openGgufPicker()
+                                },
+                                LinearLayout.LayoutParams(0, dp(48), 1f)
+                            )
                         },
-                        LinearLayout.LayoutParams(dp(144), dp(50))
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                     )
                 },
-                FrameLayout.LayoutParams(dp(238), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START)
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START)
             )
 
             addView(
                 PushBoxMarkView(context).apply { alpha = 0.96f },
-                FrameLayout.LayoutParams(dp(156), dp(124), Gravity.END or Gravity.BOTTOM)
+                FrameLayout.LayoutParams(dp(98), dp(78), Gravity.END or Gravity.BOTTOM).apply {
+                    bottomMargin = dp(18)
+                }
             )
         }.apply {
-            minimumHeight = dp(250)
+            minimumHeight = dp(210)
         }
     }
 
@@ -220,12 +276,41 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(metricCard("Loaded Model", loadedLabel, modelSize, "cube", Palette.mint))
-            addView(metricCard("Memory Use", "462 MB", "Qwen 0.5B Q4", "chip", Palette.lavender))
-            addView(metricCard("API Status", "Online", "Port 8080", "cloud", Palette.sky))
-            addView(metricCard("Last Speed", "1.8 tok/s", "AVD measured", "gauge", Palette.blue))
+            addView(metricCard("Memory Use", modelSize, "model file", "chip", Palette.lavender))
+            addView(metricCard("API Status", "Offline", "Tap Start API", "cloud", Palette.sky))
+            addView(metricCard("Last Speed", "0.0 tok/s", "after chat", "gauge", Palette.blue))
         }
         scroll.addView(row)
         return scroll
+    }
+
+    private fun buildModelHubCard(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Palette.surface, Palette.stroke, 18f)
+            elevation = dp(2).toFloat()
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+            addView(
+                LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(label("模型站", 18f, Palette.ink, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(label("GGUF 下载", 13f, Palette.muted, Typeface.BOLD))
+                }
+            )
+            addView(space(10))
+            addView(
+                actionRow(
+                    actionTile("HuggingFace", "Qwen 0.5B", "download", Palette.blue) {
+                        enqueueModelDownload(modelHubItems.first { it.provider == "HuggingFace" })
+                    },
+                    actionTile("ModelScope", "国内镜像", "download", Palette.mintDark) {
+                        enqueueModelDownload(modelHubItems.first { it.provider == "ModelScope" })
+                    }
+                )
+            )
+            addView(space(10))
+            addView(label("下载到应用模型库，完成后可直接加载。", 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+        }
     }
 
     private fun buildDeviceProbeCard(): View {
@@ -303,7 +388,7 @@ class MainActivity : Activity() {
         recommendationContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        renderRecommendationPlaceholder("启动 API 后自动加载推荐结果。")
+        renderRecommendationPlaceholder("启动 API 后加载推荐；也可以先从模型站下载 GGUF。")
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -576,7 +661,7 @@ class MainActivity : Activity() {
             probeDeviceText.text = profileText
             probeMemoryText.text = ramText
             probeCpuText.text = "${device.optInt("core_count", Runtime.getRuntime().availableProcessors())} cores"
-            probeBackendText.text = backend.optString("backend", device.optString("backend", "llama.cpp"))
+            probeBackendText.text = displayBackendName(backend.optString("backend", device.optString("backend", "llama.cpp")))
 
             recommendationContainer.removeAllViews()
             if (recommendations.length() == 0) {
@@ -623,6 +708,54 @@ class MainActivity : Activity() {
                 setPadding(0, dp(2), 0, dp(2))
             }
         )
+    }
+
+    private fun enqueueModelDownload(item: ModelHubItem) {
+        val destination = File(externalModelDir(), item.fileName)
+        if (destination.exists() && destination.length() > 1024 * 1024) {
+            Toast.makeText(this, "${item.shortName} already downloaded", Toast.LENGTH_SHORT).show()
+            ensureNotificationPermissionAndLoadModel(destination)
+            return
+        }
+
+        destination.parentFile?.mkdirs()
+        if (destination.exists()) destination.delete()
+        val request = DownloadManager.Request(Uri.parse(item.url)).apply {
+            setTitle("TuiMa ${item.shortName}")
+            setDescription("${item.provider} · ${item.fileName}")
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationUri(Uri.fromFile(destination))
+        }
+        val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val downloadId = downloadManager.enqueue(request)
+        pendingDownloads[downloadId] = destination
+        updateStatus("Downloading ${item.shortName} from ${item.provider}")
+        Toast.makeText(this, "${item.provider} download started", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun handleModelDownloadComplete(downloadId: Long, destination: File) {
+        val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        downloadManager.query(query)?.use { cursor ->
+            if (!cursor.moveToFirst()) {
+                updateStatus("Download finished, but status is unknown")
+                return
+            }
+            val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            if (status == DownloadManager.STATUS_SUCCESSFUL && destination.exists()) {
+                updateStatus("Downloaded ${destination.name}")
+                Toast.makeText(this, "Downloaded ${destination.name}", Toast.LENGTH_SHORT).show()
+                ensureNotificationPermissionAndLoadModel(destination)
+                refreshRecommendationSnapshot()
+            } else {
+                val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                updateStatus("Download failed · reason=$reason")
+                Toast.makeText(this, "Model download failed", Toast.LENGTH_LONG).show()
+                if (destination.exists()) destination.delete()
+            }
+        }
     }
 
     private fun buildRecommendationRow(
@@ -749,6 +882,13 @@ class MainActivity : Activity() {
         val abi: String
     )
 
+    private data class ModelHubItem(
+        val provider: String,
+        val shortName: String,
+        val fileName: String,
+        val url: String
+    )
+
     private enum class RecommendationPreference(
         val progress: Int,
         val queryValue: String,
@@ -794,22 +934,35 @@ class MainActivity : Activity() {
             background = rounded(Palette.surface, Palette.stroke, 24f)
             elevation = dp(3).toFloat()
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            addView(navItem("Home", "cube", true), LinearLayout.LayoutParams(0, dp(64), 1f))
-            addView(navItem("Models", "cube", false), LinearLayout.LayoutParams(0, dp(64), 1f))
-            addView(navItem("Bench", "gauge", false), LinearLayout.LayoutParams(0, dp(64), 1f))
-            addView(navItem("API", "cloud", false), LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(navItem("Home", "cube", true) { rootScrollView.smoothScrollTo(0, 0) }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(navItem("Models", "cube", false) { scrollToAnchor(modelsAnchor) }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(navItem("Metrics", "gauge", false) { scrollToAnchor(metricsAnchor) }, LinearLayout.LayoutParams(0, dp(64), 1f))
+            addView(navItem("API", "cloud", false) { scrollToAnchor(apiAnchor) }, LinearLayout.LayoutParams(0, dp(64), 1f))
         }
     }
 
-    private fun navItem(title: String, icon: String, selected: Boolean): View {
+    private fun navItem(title: String, icon: String, selected: Boolean, onClick: () -> Unit): View {
         val accent = if (selected) Palette.mint else Palette.muted
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = if (selected) rounded(Palette.mintPale, Color.TRANSPARENT, 18f) else null
+            background = ripple(
+                if (selected) rounded(Palette.mintPale, Color.TRANSPARENT, 18f) else rounded(Color.TRANSPARENT, Color.TRANSPARENT, 18f),
+                accent
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
             addView(IconBadgeView(context, icon, accent), LinearLayout.LayoutParams(dp(24), dp(24)))
             addView(space(4))
             addView(label(title, 11f, accent, if (selected) Typeface.BOLD else Typeface.NORMAL))
+        }
+    }
+
+    private fun scrollToAnchor(anchor: View?) {
+        anchor ?: return
+        rootScrollView.post {
+            rootScrollView.smoothScrollTo(0, (anchor.top - dp(12)).coerceAtLeast(0))
         }
     }
 
@@ -1004,6 +1157,8 @@ class MainActivity : Activity() {
             runtimeChipText.text = when {
                 message.startsWith("Service started") -> "Local Runtime Online"
                 message.startsWith("Loading") -> "Loading Local Model"
+                message.startsWith("Downloading") -> "Downloading Model"
+                message.startsWith("Downloaded") -> "Model Downloaded"
                 message.startsWith("Service stopped") -> "Runtime Stopped"
                 message.startsWith("No GGUF") -> "Model Needed"
                 else -> "On-device LLM Ready"
@@ -1104,6 +1259,14 @@ class MainActivity : Activity() {
             name.contains("smollm", ignoreCase = true) -> "SmolLM2 135M"
             name.length <= 16 -> name
             else -> name.take(13).trim('-', '_') + "..."
+        }
+    }
+
+    private fun displayBackendName(name: String): String {
+        return when {
+            name.contains("llama", ignoreCase = true) -> "llama.cpp"
+            name.length <= 14 -> name
+            else -> name.take(12).trim('-', '_') + "..."
         }
     }
 
@@ -1232,6 +1395,7 @@ class MainActivity : Activity() {
                 "chip" -> drawChip(canvas, w, h)
                 "cloud" -> drawCloud(canvas, w, h)
                 "gauge" -> drawGauge(canvas, w, h)
+                "download" -> drawDownload(canvas, w, h)
                 else -> drawCube(canvas, w, h)
             }
         }
@@ -1286,6 +1450,13 @@ class MainActivity : Activity() {
         private fun drawGauge(canvas: Canvas, w: Float, h: Float) {
             canvas.drawArc(RectF(w * 0.22f, h * 0.28f, w * 0.78f, h * 0.84f), 200f, 140f, false, strokePaint)
             canvas.drawLine(w * 0.50f, h * 0.58f, w * 0.66f, h * 0.42f, strokePaint)
+        }
+
+        private fun drawDownload(canvas: Canvas, w: Float, h: Float) {
+            canvas.drawLine(w * 0.50f, h * 0.24f, w * 0.50f, h * 0.58f, strokePaint)
+            canvas.drawLine(w * 0.34f, h * 0.44f, w * 0.50f, h * 0.60f, strokePaint)
+            canvas.drawLine(w * 0.66f, h * 0.44f, w * 0.50f, h * 0.60f, strokePaint)
+            canvas.drawRoundRect(RectF(w * 0.26f, h * 0.66f, w * 0.74f, h * 0.78f), w * 0.04f, w * 0.04f, strokePaint)
         }
     }
 }
