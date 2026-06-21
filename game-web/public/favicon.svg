@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="TuiMa">
+  <rect width="64" height="64" rx="14" fill="#f6fbff" />
+  <rect x="8" y="8" width="48" height="48" rx="12" fill="#ffffff" stroke="#cfe5f6" stroke-width="2" />
+  <path d="M18 22h28" stroke="#17bda8" stroke-width="7" stroke-linecap="round" />
+  <path d="M32 22v23" stroke="#5f88ff" stroke-width="7" stroke-linecap="round" />
+  <circle cx="45" cy="42" r="5" fill="#a78bfa" />
+</svg>

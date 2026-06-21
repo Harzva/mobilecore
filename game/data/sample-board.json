@@ -1,0 +1,33 @@
+{
+  "schema_version": "tuima-push-board-v0.1",
+  "board_id": "standard-device-challenge-04",
+  "name": "Device Challenge 04",
+  "version": 1,
+  "size": {
+    "rows": 8,
+    "cols": 8
+  },
+  "theme": "pastel-mint",
+  "device_preset": "smartphone",
+  "score_rule": "sum_of_values",
+  "tiles": [
+    { "type": "player_start", "x": 0, "y": 4 },
+    { "type": "model_box", "x": 1, "y": 1, "model_tier": "0.5B", "model_id": "qwen-0.5b-q4", "quantization": "Q4_K_M" },
+    { "type": "model_box", "x": 1, "y": 2, "model_tier": "1.5B", "model_id": "qwen-1.5b-q4", "quantization": "Q4_K_M" },
+    { "type": "model_box", "x": 1, "y": 3, "model_tier": "3B", "model_id": "qwen-3b-q4", "quantization": "Q4_K_M" },
+    { "type": "model_box", "x": 1, "y": 4, "model_tier": "7B", "model_id": "qwen2.5-7b-instruct-q4", "quantization": "Q4_K_M" },
+    { "type": "model_box", "x": 1, "y": 5, "model_tier": "14B", "model_id": "qwen-14b-q4", "quantization": "Q4_K_M" },
+    { "type": "target_phone", "x": 7, "y": 1, "accepts": ["0.5B"] },
+    { "type": "target_phone", "x": 7, "y": 2, "accepts": ["1.5B", "3B"] },
+    { "type": "target_phone", "x": 7, "y": 3, "accepts": ["3B", "7B"] },
+    { "type": "target_phone", "x": 7, "y": 4, "accepts": ["7B"] },
+    { "type": "target_phone", "x": 7, "y": 5, "accepts": ["14B"] },
+    { "type": "wall", "x": 3, "y": 6 },
+    { "type": "wall", "x": 4, "y": 6 },
+    { "type": "bonus_score", "x": 0, "y": 0, "value": 300 },
+    { "type": "speed_boost", "x": 0, "y": 7, "multiplier": 1.2 },
+    { "type": "upload_badge", "x": 7, "y": 7 }
+  ],
+  "created_by": "tuima-team",
+  "created_at": "2026-06-21T00:00:00Z"
+}

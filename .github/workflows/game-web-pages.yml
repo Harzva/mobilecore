@@ -1,0 +1,46 @@
+name: Deploy TuiMa Push Game
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "game-web/**"
+      - ".github/workflows/game-web-pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: game-web/package-lock.json
+      - run: npm ci
+        working-directory: game-web
+      - run: npm run build
+        working-directory: game-web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: game-web/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

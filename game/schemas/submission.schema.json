@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tuima.local/schemas/submission.schema.json",
+  "title": "TuiMa Push Submission",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "anonymous_id",
+    "player_name",
+    "device",
+    "runtime",
+    "board",
+    "result",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "tuima-push-submission-v0.1"
+    },
+    "anonymous_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    },
+    "player_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "device": {
+      "type": "object",
+      "required": ["device_class", "os", "chip_class"],
+      "properties": {
+        "device_class": { "type": "string", "maxLength": 64 },
+        "os": { "type": "string", "enum": ["iOS", "Android", "iPadOS", "Unknown"] },
+        "ram_class": { "type": "string", "maxLength": 32 },
+        "chip_class": { "type": "string", "maxLength": 64 }
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["mobilecore_version", "backend", "model_format"],
+      "properties": {
+        "mobilecore_version": { "type": "string" },
+        "backend": { "type": "string" },
+        "model_format": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "board": {
+      "type": "object",
+      "required": ["board_id", "board_version", "board_type"],
+      "properties": {
+        "board_id": { "type": "string" },
+        "board_version": { "type": "integer", "minimum": 1 },
+        "board_type": { "type": "string", "enum": ["standard", "custom"] }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "total_score",
+        "avg_decode_tok_s",
+        "first_token_ms",
+        "memory_peak_mb",
+        "best_model",
+        "cleared_models",
+        "stages_completed"
+      ],
+      "properties": {
+        "total_score": { "type": "integer", "minimum": 0 },
+        "avg_decode_tok_s": { "type": "number", "minimum": 0 },
+        "first_token_ms": { "type": "integer", "minimum": 0 },
+        "memory_peak_mb": { "type": "integer", "minimum": 0 },
+        "temperature_peak_celsius": { "type": "number" },
+        "best_model": { "type": "string" },
+        "cleared_models": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "stages_completed": { "type": "integer", "minimum": 0 },
+        "stage_total": { "type": "integer", "minimum": 1 },
+        "moves_used": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

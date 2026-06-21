@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tuima.local/schemas/custom-board.schema.json",
+  "title": "TuiMa Push Custom Board",
+  "type": "object",
+  "required": ["schema_version", "board_id", "name", "version", "size", "theme", "device_preset", "score_rule", "tiles"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "tuima-push-board-v0.1"
+    },
+    "board_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "size": {
+      "type": "object",
+      "required": ["rows", "cols"],
+      "properties": {
+        "rows": { "type": "integer", "minimum": 4, "maximum": 12 },
+        "cols": { "type": "integer", "minimum": 4, "maximum": 12 }
+      },
+      "additionalProperties": false
+    },
+    "theme": {
+      "type": "string",
+      "enum": ["pastel-mint", "sky-blue", "lavender-night", "minimal-grid"]
+    },
+    "device_preset": {
+      "type": "string",
+      "enum": ["smartphone", "tablet", "custom"]
+    },
+    "score_rule": {
+      "type": "string",
+      "enum": ["sum_of_values", "highest_tile", "speed_run", "stability"]
+    },
+    "tiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "x", "y"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "player_start",
+              "model_box",
+              "target_phone",
+              "wall",
+              "bonus_score",
+              "speed_boost",
+              "upload_badge"
+            ]
+          },
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "model_tier": { "type": "string" },
+          "model_id": { "type": "string" },
+          "quantization": { "type": "string" },
+          "accepts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "value": { "type": "integer" },
+          "multiplier": { "type": "number" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "created_by": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

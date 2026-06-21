@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme-assets/tuima-hero.png" alt="TuiMa hero banner for MobileCore on-device LLM inference" width="900" />
+  <img src="docs/readme-assets/tuima-hero.png" alt="Latest TuiMa wide hero banner for MobileCore on-device LLM inference" width="900" />
 </p>
 
 <h1 align="center">MobileCore / 推嘛 TuiMa</h1>
@@ -20,6 +20,7 @@
   <a href="#quick-start">Quick Start</a> ·
   <a href="#api">API</a> ·
   <a href="#benchmarks">Benchmarks</a> ·
+  <a href="game-web/README.md">TuiMa Game</a> ·
   <a href="android-app/README.md">Android Guide</a> ·
   <a href="ROADMAP.md">Roadmap</a>
 </p>
@@ -38,13 +39,14 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
+| TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, mock benchmark scoring, local leaderboard, and custom board JSON flow |
 
 ## Visual Proof
 
-MobileCore keeps the product design direction and the current Android validation evidence side by side: the first image shows the updated TuiMa brand direction, and the second image is a real AVD screenshot with device probing, preference control, ranked recommendations, benchmark-backed stats, and a direct `Load` action.
+MobileCore keeps the updated TuiMa product direction and the current Android validation evidence side by side: the wide banner at the top introduces the latest "MobileCore on your phone" visual, the square card below shows the refreshed TuiMa brand direction, and the phone screenshot is real AVD evidence with device probing, preference control, ranked recommendations, benchmark-backed stats, and a direct `Load` action.
 
 <p align="center">
-  <img src="docs/readme-assets/tuima-brand-card.png" alt="Updated TuiMa brand card for MobileCore on-device LLM inference" width="330" />
+  <img src="docs/readme-assets/tuima-brand-card.png" alt="Latest TuiMa square brand card for MobileCore on-device LLM inference" width="330" />
   <img src="docs/readme-assets/recommendation-card.png" alt="MobileCore Android recommendation card with preference slider, model ranking, token speed, memory, and Load action" width="330" />
 </p>
 
@@ -168,6 +170,8 @@ MobileCore/
 ├── android-app/              # Kotlin Android app, NanoHTTPD server, JNI bridge, CMake
 ├── docs/                     # Architecture, API contracts, benchmark plan, README assets
 ├── examples/                 # MobileCode provider preset
+├── game/                     # TuiMa Push Game product specs, schemas, Supabase draft, and source assets
+├── game-web/                 # Static React/Vite MVP for the TuiMa Push benchmark game
 ├── src/                      # Runtime contracts and native backend notes
 ├── tests/                    # Manual smoke-test docs
 ├── design-assets/            # MobileCore and TuiMa product UI / brand reference images
