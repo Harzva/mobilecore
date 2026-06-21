@@ -107,7 +107,7 @@ final class MobileCoreAppState: ObservableObject {
             )
             lastReply = result.message
             refreshModels()
-            statusMessage = "Stub chat completed"
+            statusMessage = "Chat completed"
         } catch {
             statusMessage = error.localizedDescription
         }
