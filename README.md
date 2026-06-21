@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/readme-assets/mobilecore-brand-board.jpg" alt="MobileCore brand board" width="760" />
+  <img src="docs/readme-assets/tuima-hero.png" alt="TuiMa hero banner for MobileCore on-device LLM inference" width="900" />
 </p>
 
 <h1 align="center">MobileCore / 推嘛 TuiMa</h1>
@@ -41,10 +41,11 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 
 ## Visual Proof
 
-The current Android home screen includes device probing, preference control, ranked recommendations, benchmark-backed model stats, and a direct `Load` action.
+MobileCore keeps the product design direction and the current Android validation evidence side by side: the first image shows the TuiMa visual direction, and the second image is a real AVD screenshot with device probing, preference control, ranked recommendations, benchmark-backed stats, and a direct `Load` action.
 
 <p align="center">
-  <img src="docs/readme-assets/recommendation-card.png" alt="MobileCore Android recommendation card with preference slider, model ranking, token speed, memory, and Load action" width="360" />
+  <img src="docs/readme-assets/tuima-home.png" alt="TuiMa MobileCore home screen design direction" width="330" />
+  <img src="docs/readme-assets/recommendation-card.png" alt="MobileCore Android recommendation card with preference slider, model ranking, token speed, memory, and Load action" width="330" />
 </p>
 
 ## Quick Start
@@ -146,18 +147,18 @@ These numbers are AVD smoke-test evidence, not a production phone benchmark. Rea
 
 ```mermaid
 flowchart TD
-  A[Android UI] --> B[MobileCoreService]
-  B --> C[LocalApiServer]
-  C --> D[ModelManager]
-  D --> E[RuntimeBridge JNI]
-  E --> F[llama.cpp]
-  D --> G[DeviceProbe]
-  D --> H[GGUF Metadata Reader]
-  D --> I[Benchmark Store]
-  G --> J[/v1/recommendations]
+  A["Android UI"] --> B["MobileCoreService"]
+  B --> C["LocalApiServer"]
+  C --> D["ModelManager"]
+  D --> E["RuntimeBridge JNI"]
+  E --> F["llama.cpp"]
+  D --> G["DeviceProbe"]
+  D --> H["GGUF Metadata Reader"]
+  D --> I["Benchmark Store"]
+  G --> J["/v1/recommendations"]
   H --> J
   I --> J
-  C --> K[/v1/models and /v1/chat/completions]
+  C --> K["/v1/models and /v1/chat/completions"]
 ```
 
 ## Repository Layout
@@ -169,7 +170,7 @@ MobileCore/
 ├── examples/                 # MobileCode provider preset
 ├── src/                      # Runtime contracts and native backend notes
 ├── tests/                    # Manual smoke-test docs
-├── design-assets/            # Product UI and brand reference images
+├── design-assets/            # MobileCore and TuiMa product UI / brand reference images
 └── MobileCore-P0-Probe/      # Early P0 probe notes and scripts
 ```
 

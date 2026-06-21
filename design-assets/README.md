@@ -1,15 +1,8 @@
-# MobileCore Design Assets - Push-box Style
+# MobileCore / TuiMa Design Assets
 
-这组图片是 MobileCore（推嘛）基于“推箱子/推大模型”Logo 概念重新设计的 UI 与品牌图。
+这组图片是 MobileCore（推嘛 / TuiMa）的产品 UI 与品牌参考图，分成两组：
 
-包含：
+- `mobilecore/`: 早期 MobileCore push-box 风格品牌板与 App UI。
+- `tuima/`: 新一版 TuiMa 品牌方向，适合 README hero、宣传图和后续 App 视觉打磨。
 
-1. Logo 主视觉
-2. Logo 品牌板
-3. Logo 备选方案
-4. Home 首页 UI
-5. Models 模型管理 UI
-6. Benchmark 跑分 UI
-7. API & Integration 接入 UI
-
-风格：简约、可爱、清新、浅色、移动端产品感。
+推荐公开展示优先使用 `tuima/`，保留 `mobilecore/` 作为设计演进参考。
