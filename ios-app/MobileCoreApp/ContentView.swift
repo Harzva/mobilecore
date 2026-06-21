@@ -75,8 +75,8 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionTitle(title: "Runtime", symbol: "cpu")
             HStack(spacing: 10) {
-                StatTile(title: "Backend", value: "llama.cpp")
-                StatTile(title: "Mode", value: "stub")
+                StatTile(title: "Backend", value: appState.backendInfo.name)
+                StatTile(title: "Mode", value: appState.backendInfo.mode)
                 StatTile(title: "Port", value: "8080")
             }
             Text(appState.apiURL)

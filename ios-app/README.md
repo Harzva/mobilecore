@@ -5,13 +5,20 @@ This is the native iOS MVP shell for MobileCore:
 - SwiftUI app entry
 - Files importer for `.gguf`
 - App sandbox model storage at `Documents/MobileCore/models`
-- Objective-C++ `LlamaBridge` stub with `backendInfo`, `loadModel`, `chat`, and `unloadModel`
+- Objective-C++ `LlamaBridge` wired to local llama.cpp with `backendInfo`, `loadModel`, `chat`, and `unloadModel`
 - Foreground localhost API on `127.0.0.1:8080`
-- OpenAI-compatible mock routes for `/v1/models` and `/v1/chat/completions`
+- OpenAI-compatible routes for `/v1/models` and non-streaming `/v1/chat/completions`
 
-The bridge is intentionally a stub. It proves the Swift to Objective-C++ boundary, model file flow, and local API shape before wiring real llama.cpp inference.
+The app builds llama.cpp as a local static library through `scripts/build-llama.sh`. The script reuses the repository's ignored `android-app/third_party/llama.cpp` checkout so the Android and iOS paths stay on the same pinned llama.cpp revision.
 
 ## Build
+
+Restore llama.cpp first if it is not already present:
+
+```bash
+cd ../android-app
+./scripts/bootstrap-llama.sh
+```
 
 ```bash
 cd ios-app
@@ -46,13 +53,8 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   }'
 ```
 
-The localhost listener runs only while the app is open. iOS background service behavior is not part of this skeleton.
+The localhost listener runs only while the app is open. iOS background service behavior is not part of this skeleton. Streaming chat is not implemented yet.
 
 ## Next Native Step
 
-Replace `MobileCoreApp/Native/LlamaBridge.mm` internals with real llama.cpp calls while keeping the same Swift-facing methods:
-
-- `backendInfo`
-- `loadModelAtPath:contextLength:error:`
-- `chatWithMessagesJSON:optionsJSON:error:`
-- `unloadModel`
+Add configurable sampling, streaming tokens, Metal acceleration, and device-side benchmark persistence.

@@ -12,14 +12,14 @@ final class LlamaRuntime: MobileCoreRuntime {
     func backendInfo() -> BackendInfo {
         guard let data = bridge.backendInfo().data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return BackendInfo(id: "llama.cpp", name: "llama.cpp", version: "stub", mode: "stub")
+            return BackendInfo(id: "llama.cpp", name: "llama.cpp", version: "unknown", mode: "unavailable")
         }
 
         return BackendInfo(
             id: json["id"] as? String ?? "llama.cpp",
             name: json["name"] as? String ?? "llama.cpp",
-            version: json["version"] as? String ?? "stub",
-            mode: json["mode"] as? String ?? "stub"
+            version: json["version"] as? String ?? "unknown",
+            mode: json["mode"] as? String ?? "unavailable"
         )
     }
 

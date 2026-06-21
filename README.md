@@ -26,7 +26,7 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
-MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device. The iOS app now has a buildable SwiftUI skeleton with Files import, Objective-C++ bridge stubs, and foreground localhost mock routes.
+MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device. The iOS app now has a buildable SwiftUI skeleton with Files import, an Objective-C++ llama.cpp bridge, and foreground localhost routes.
 
 It is designed to sit below MobileCode or any other mobile app that wants to call a local LLM through `http://127.0.0.1:8080/v1`.
 
@@ -35,7 +35,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Area | Current state |
 | --- | --- |
 | Android app | Kotlin app with `MainActivity`, foreground `MobileCoreService`, notification permission handling, and model actions |
-| iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama bridge stub, and foreground localhost mock API |
+| iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama.cpp bridge, and foreground localhost API |
 | Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, and model management routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
@@ -105,7 +105,8 @@ xcodebuild -project MobileCoreiOS.xcodeproj \
   build
 ```
 
-Open `ios-app/MobileCoreiOS.xcodeproj` in Xcode to run the SwiftUI app, import a `.gguf` through Files, load the bridge stub, and start the foreground local API.
+Open `ios-app/MobileCoreiOS.xcodeproj` in Xcode to run the SwiftUI app, import a `.gguf` through Files, load the model, and start the foreground local API.
+The iOS build reuses `android-app/third_party/llama.cpp`; run `android-app/scripts/bootstrap-llama.sh` first if that checkout is missing.
 
 ## API
 
@@ -184,7 +185,7 @@ flowchart TD
 ```text
 MobileCore/
 ├── android-app/              # Kotlin Android app, NanoHTTPD server, JNI bridge, CMake
-├── ios-app/                  # SwiftUI iOS app, Files GGUF import, Objective-C++ bridge stub
+├── ios-app/                  # SwiftUI iOS app, Files GGUF import, Objective-C++ llama.cpp bridge
 ├── docs/                     # Architecture, API contracts, benchmark plan, README assets
 ├── examples/                 # MobileCode provider preset
 ├── game/                     # TuiMa Push Game product specs, schemas, Supabase draft, and source assets
@@ -208,7 +209,7 @@ Large local-only files are intentionally excluded from Git:
 - Add real-device benchmark profiles for speed, stability, memory, heat, and battery.
 - Expand model metadata parsing across more GGUF naming conventions and metadata keys.
 - Let benchmark history continuously improve recommendations per device.
-- Connect the iOS Objective-C++ bridge stub to real llama.cpp load/chat/unload.
+- Add iOS streaming chat, configurable sampling, benchmark persistence, and Metal acceleration.
 
 ## Name
 

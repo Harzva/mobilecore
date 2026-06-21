@@ -21,6 +21,7 @@
 
 /* Begin PBXFileReference section */
 		A00000000000000000000100 /* MobileCoreiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MobileCoreiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000180 /* build-llama.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-llama.sh"; sourceTree = "<group>"; };
 		A00000000000000000000110 /* MobileCoreApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCoreApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000111 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A00000000000000000000112 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -51,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000003 /* MobileCoreApp */,
+				A00000000000000000000008 /* scripts */,
 				A00000000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -115,6 +117,14 @@
 			path = Native;
 			sourceTree = "<group>";
 		};
+		A00000000000000000000008 /* scripts */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000180 /* build-llama.sh */,
+			);
+			path = scripts;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -122,6 +132,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = E00000000000000000000000 /* Build configuration list for PBXNativeTarget "MobileCoreiOS" */;
 			buildPhases = (
+				C00000000000000000000050 /* Build llama.cpp */,
 				C00000000000000000000030 /* Sources */,
 				C00000000000000000000020 /* Frameworks */,
 				C00000000000000000000040 /* Resources */,
@@ -177,6 +188,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		C00000000000000000000050 /* Build llama.cpp */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build llama.cpp";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/src/libllama.a",
+				"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml.a",
+				"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-cpu.a",
+				"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-base.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "bash \"$SRCROOT/scripts/build-llama.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C00000000000000000000030 /* Sources */ = {
@@ -308,12 +344,24 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MobileCoreApp/Info.plist;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../android-app/third_party/llama.cpp/include",
+					"$(SRCROOT)/../android-app/third_party/llama.cpp/ggml/include",
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/src/libllama.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-cpu.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-base.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = ai.mobilecore.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -333,12 +381,24 @@
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MobileCoreApp/Info.plist;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../android-app/third_party/llama.cpp/include",
+					"$(SRCROOT)/../android-app/third_party/llama.cpp/ggml/include",
+				);
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/src/libllama.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-cpu.a",
+					"$(SRCROOT)/build/llama-$(PLATFORM_NAME)-$(CONFIGURATION)/ggml/src/libggml-base.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = ai.mobilecore.ios;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

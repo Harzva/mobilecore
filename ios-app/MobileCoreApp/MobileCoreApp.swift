@@ -24,6 +24,7 @@ final class MobileCoreAppState: ObservableObject {
     @Published var statusMessage = "Ready"
     @Published var lastReply = ""
     @Published var lastMetrics = RuntimeMetrics()
+    @Published var backendInfo = BackendInfo(id: "llama.cpp", name: "llama.cpp", version: "linked", mode: "objective-c++")
 
     var apiURL: String {
         "http://127.0.0.1:8080"
@@ -39,6 +40,7 @@ final class MobileCoreAppState: ObservableObject {
     }
 
     func refreshModels() {
+        backendInfo = runtime.backendInfo()
         models = modelManager.scanModels(loadedPath: runtime.loadedModelPath)
         lastMetrics = runtime.metrics()
         activeModel = lastMetrics.activeModel
