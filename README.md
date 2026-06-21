@@ -41,10 +41,10 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 
 ## Visual Proof
 
-MobileCore keeps the product design direction and the current Android validation evidence side by side: the first image shows the TuiMa visual direction, and the second image is a real AVD screenshot with device probing, preference control, ranked recommendations, benchmark-backed stats, and a direct `Load` action.
+MobileCore keeps the product design direction and the current Android validation evidence side by side: the first image shows the updated TuiMa brand direction, and the second image is a real AVD screenshot with device probing, preference control, ranked recommendations, benchmark-backed stats, and a direct `Load` action.
 
 <p align="center">
-  <img src="docs/readme-assets/tuima-home.png" alt="TuiMa MobileCore home screen design direction" width="330" />
+  <img src="docs/readme-assets/tuima-brand-card.png" alt="Updated TuiMa brand card for MobileCore on-device LLM inference" width="330" />
   <img src="docs/readme-assets/recommendation-card.png" alt="MobileCore Android recommendation card with preference slider, model ranking, token speed, memory, and Load action" width="330" />
 </p>
 
