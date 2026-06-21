@@ -24,6 +24,8 @@ import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.OpenableColumns
 import android.view.Gravity
 import android.view.View
@@ -69,6 +71,22 @@ class MainActivity : Activity() {
     private val importModelRequestCode = 1002
     private var pendingAfterNotificationPermission: (() -> Unit)? = null
     private val pendingDownloads = mutableMapOf<Long, File>()
+    private val providerStateByProvider = mutableMapOf<String, ModelDownloadState>()
+    private val providerStatusByProvider = mutableMapOf<String, TextView>()
+    private val providerMessageByProvider = mutableMapOf<String, TextView>()
+    private val providerProgressByProvider = mutableMapOf<String, TextView>()
+    private val providerCancelByProvider = mutableMapOf<String, View>()
+    private val providerTileByProvider = mutableMapOf<String, View>()
+    private val pendingDownloadProviders = mutableMapOf<Long, String>()
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private val progressPollRunnable = object : Runnable {
+        override fun run() {
+            refreshActiveDownloadProgress()
+            if (hasActiveDownload()) {
+                progressHandler.postDelayed(this, 900L)
+            }
+        }
+    }
     private val modelHubItems = listOf(
         ModelHubItem(
             provider = "HuggingFace",
@@ -88,13 +106,17 @@ class MainActivity : Activity() {
             if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
             val downloadId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
             val destination = pendingDownloads.remove(downloadId) ?: return
-            handleModelDownloadComplete(downloadId, destination)
+            val provider = pendingDownloadProviders.remove(downloadId) ?: "Unknown"
+            handleModelDownloadComplete(downloadId, destination, provider)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recommendationPreference = readRecommendationPreference()
+        if (providerStateByProvider.isEmpty()) {
+            modelHubItems.forEach { providerStateByProvider[it.provider] = ModelDownloadState(item = it) }
+        }
         actionBar?.hide()
         window.statusBarColor = Palette.background
         window.navigationBarColor = Color.WHITE
@@ -116,7 +138,7 @@ class MainActivity : Activity() {
         content.addView(space(14))
         content.addView(buildHeroCard())
         content.addView(space(14))
-        content.addView(sectionTitle("模型获取", "HuggingFace · ModelScope"))
+        content.addView(sectionTitle("模型获取", "ModelScope 优先"))
         content.addView(buildModelHubCard())
         content.addView(space(18))
         content.addView(sectionTitle("本机体检", "根据设备能力给出推荐"))
@@ -161,6 +183,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        progressHandler.removeCallbacks(progressPollRunnable)
         runCatching { unregisterReceiver(downloadCompleteReceiver) }
         super.onDestroy()
     }
@@ -285,6 +308,8 @@ class MainActivity : Activity() {
     }
 
     private fun buildModelHubCard(): View {
+        providerStateByProvider.putIfAbsent("HuggingFace", ModelDownloadState(modelHubItems[0]))
+        providerStateByProvider.putIfAbsent("ModelScope", ModelDownloadState(modelHubItems[1]))
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(Palette.surface, Palette.stroke, 18f)
@@ -298,18 +323,68 @@ class MainActivity : Activity() {
                 }
             )
             addView(space(10))
+            val modelScopeTile = actionTile("ModelScope", "国内镜像（推荐）", "download", Palette.mintDark) {
+                enqueueModelDownload(modelHubItems.first { it.provider == "ModelScope" })
+            }
+            val huggingFaceTile = actionTile("HuggingFace", "Qwen 0.5B", "download", Palette.blue) {
+                enqueueModelDownload(modelHubItems.first { it.provider == "HuggingFace" })
+            }
+            providerTileByProvider["HuggingFace"] = huggingFaceTile
+            providerTileByProvider["ModelScope"] = modelScopeTile
             addView(
-                actionRow(
-                    actionTile("HuggingFace", "Qwen 0.5B", "download", Palette.blue) {
-                        enqueueModelDownload(modelHubItems.first { it.provider == "HuggingFace" })
-                    },
-                    actionTile("ModelScope", "国内镜像", "download", Palette.mintDark) {
-                        enqueueModelDownload(modelHubItems.first { it.provider == "ModelScope" })
-                    }
-                )
+                actionRow(modelScopeTile, huggingFaceTile)
             )
             addView(space(10))
+            addView(buildModelHubStatusRows())
+            addView(space(10))
             addView(label("下载到应用模型库，完成后可直接加载。", 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+        }
+    }
+
+    private fun buildModelHubStatusRows(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("下载状态", 13f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 })
+            addView(space(6))
+            addView(buildModelHubStatusRow(modelHubItems.first { it.provider == "ModelScope" }))
+            addView(space(6))
+            addView(buildModelHubStatusRow(modelHubItems.first { it.provider == "HuggingFace" }))
+        }
+    }
+
+    private fun buildModelHubStatusRow(item: ModelHubItem): View {
+        val provider = item.provider
+        val statusText = label("状态：空闲", 12f, Palette.muted, Typeface.NORMAL)
+        val messageText = label("可下载", 12f, Palette.muted, Typeface.NORMAL)
+        val progressText = label("进度：0B / 未知 (0%)", 11f, Palette.muted, Typeface.NORMAL)
+        val cancelButton = pillButton("取消", Palette.sky, Palette.blue) {
+            cancelModelDownload(provider)
+        }.apply {
+            visibility = View.GONE
+            setPadding(0, dp(4), 0, dp(4))
+        }
+
+        providerStatusByProvider[provider] = statusText
+        providerMessageByProvider[provider] = messageText
+        providerProgressByProvider[provider] = progressText
+        providerCancelByProvider[provider] = cancelButton
+        refreshModelDownloadStatus(provider)
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(tint(Palette.mint, 0.10f), Palette.stroke, 14f)
+            addView(
+                LinearLayout(context).apply {
+                    addView(label("${item.provider} · ${item.shortName}", 13f, Palette.ink, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(cancelButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                }
+            )
+            addView(space(4))
+            addView(statusText)
+            addView(space(2))
+            addView(messageText)
+            addView(progressText)
         }
     }
 
@@ -711,8 +786,23 @@ class MainActivity : Activity() {
     }
 
     private fun enqueueModelDownload(item: ModelHubItem) {
+        val state = providerStateByProvider[item.provider] ?: ModelDownloadState(item)
         val destination = File(externalModelDir(), item.fileName)
+        providerStateByProvider[item.provider] = state
+
+        if (state.isActive) {
+            Toast.makeText(this, "${item.provider}下载正在进行中", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         if (destination.exists() && destination.length() > 1024 * 1024) {
+            state.status = DownloadState.SUCCESS
+            state.downloadId = null
+            state.bytesDownloaded = destination.length()
+            state.totalBytes = destination.length()
+            state.percent = 100
+            state.failureMessage = null
+            refreshModelDownloadStatus(item.provider)
             Toast.makeText(this, "${item.shortName} already downloaded", Toast.LENGTH_SHORT).show()
             ensureNotificationPermissionAndLoadModel(destination)
             return
@@ -731,31 +821,60 @@ class MainActivity : Activity() {
         val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
         val downloadId = downloadManager.enqueue(request)
         pendingDownloads[downloadId] = destination
+        pendingDownloadProviders[downloadId] = item.provider
+        state.status = DownloadState.DOWNLOADING
+        state.downloadId = downloadId
+        state.destination = destination
+        state.percent = 0
+        state.bytesDownloaded = 0
+        state.totalBytes = 0
+        state.failureMessage = null
+        refreshModelDownloadStatus(item.provider)
         updateStatus("Downloading ${item.shortName} from ${item.provider}")
+        progressHandler.removeCallbacks(progressPollRunnable)
+        progressHandler.post(progressPollRunnable)
         Toast.makeText(this, "${item.provider} download started", Toast.LENGTH_SHORT).show()
     }
 
-    private fun handleModelDownloadComplete(downloadId: Long, destination: File) {
+    private fun handleModelDownloadComplete(downloadId: Long, destination: File, provider: String) {
+        val state = providerStateByProvider[provider] ?: ModelDownloadState(itemFromProvider(provider) ?: return)
+        state.downloadId = null
+        providerTileByProvider[provider]?.alpha = 1f
+        providerCancelByProvider[provider]?.visibility = View.GONE
         val downloadManager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
         val query = DownloadManager.Query().setFilterById(downloadId)
         downloadManager.query(query)?.use { cursor ->
             if (!cursor.moveToFirst()) {
+                state.status = DownloadState.FAILED
+                state.failureMessage = "下载完成通知无状态"
+                refreshModelDownloadStatus(provider)
                 updateStatus("Download finished, but status is unknown")
-                return
+                return@use
             }
             val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
             if (status == DownloadManager.STATUS_SUCCESSFUL && destination.exists()) {
+                state.status = DownloadState.SUCCESS
+                state.bytesDownloaded = destination.length()
+                state.totalBytes = destination.length()
+                state.percent = 100
+                state.failureMessage = null
+                refreshModelDownloadStatus(provider)
                 updateStatus("Downloaded ${destination.name}")
                 Toast.makeText(this, "Downloaded ${destination.name}", Toast.LENGTH_SHORT).show()
                 ensureNotificationPermissionAndLoadModel(destination)
                 refreshRecommendationSnapshot()
             } else {
                 val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                state.status = DownloadState.FAILED
+                state.failureMessage = "失败原因：${downloadReasonText(reason)}"
+                refreshModelDownloadStatus(provider)
                 updateStatus("Download failed · reason=$reason")
                 Toast.makeText(this, "Model download failed", Toast.LENGTH_LONG).show()
                 if (destination.exists()) destination.delete()
             }
         }
+        progressHandler.removeCallbacks(progressPollRunnable)
+        if (hasActiveDownload()) progressHandler.post(progressPollRunnable)
     }
 
     private fun buildRecommendationRow(
@@ -815,6 +934,166 @@ class MainActivity : Activity() {
             addView(label("mem ${estimatedMemoryMb}MB · $speedText tok/s", 12f, Palette.muted, Typeface.NORMAL))
             addView(space(2))
             addView(label("Reason: $reason", 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+        }
+    }
+
+    private fun refreshModelDownloadStatus(provider: String) {
+        val state = providerStateByProvider[provider] ?: return
+        val statusView = providerStatusByProvider[provider] ?: return
+        val messageView = providerMessageByProvider[provider] ?: return
+        val progressView = providerProgressByProvider[provider] ?: return
+        val cancelView = providerCancelByProvider[provider]
+        val tile = providerTileByProvider[provider]
+        val bytesTotalText = if (state.totalBytes > 0) formatBytes(state.totalBytes) else "未知"
+        val percentText = if (state.totalBytes > 0L) "${state.percent}%" else "未知"
+
+        when (state.status) {
+            DownloadState.IDLE -> {
+                statusView.text = "状态：空闲"
+                messageView.text = "${provider} 可下载"
+                cancelView?.visibility = View.GONE
+                tile?.alpha = 1f
+            }
+            DownloadState.DOWNLOADING -> {
+                statusView.text = "状态：进行中"
+                messageView.text = "${provider}下载中"
+                cancelView?.visibility = View.VISIBLE
+                tile?.alpha = 0.6f
+            }
+            DownloadState.PAUSED -> {
+                statusView.text = "状态：等待中"
+                messageView.text = state.failureMessage ?: "等待网络或系统调度"
+                cancelView?.visibility = View.VISIBLE
+                tile?.alpha = 0.6f
+            }
+            DownloadState.SUCCESS -> {
+                statusView.text = "状态：成功"
+                messageView.text = "${provider}下载完成，可直接加载"
+                cancelView?.visibility = View.GONE
+                tile?.alpha = 1f
+            }
+            DownloadState.FAILED -> {
+                statusView.text = "状态：失败"
+                messageView.text = state.failureMessage ?: "${provider}下载失败"
+                cancelView?.visibility = View.GONE
+                tile?.alpha = 1f
+            }
+            DownloadState.CANCELLED -> {
+                statusView.text = "状态：已取消"
+                messageView.text = "已取消，可重试"
+                cancelView?.visibility = View.GONE
+                tile?.alpha = 1f
+            }
+        }
+        progressView.text = "进度：${formatBytes(state.bytesDownloaded)} / $bytesTotalText ($percentText)"
+        progressView.visibility = View.VISIBLE
+    }
+
+    private fun cancelModelDownload(provider: String) {
+        val state = providerStateByProvider[provider] ?: return
+        val downloadId = state.downloadId ?: return
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        if (manager.remove(downloadId) > 0) {
+            state.status = DownloadState.CANCELLED
+            state.downloadId = null
+            state.bytesDownloaded = 0
+            state.totalBytes = 0
+            state.percent = 0
+            state.failureMessage = null
+            pendingDownloads.remove(downloadId)
+            pendingDownloadProviders.remove(downloadId)
+            refreshModelDownloadStatus(provider)
+            providerTileByProvider[provider]?.alpha = 1f
+            updateStatus("${provider}下载已取消")
+            Toast.makeText(this, "${provider} 下载已取消", Toast.LENGTH_SHORT).show()
+            progressEndIfNeeded()
+        } else {
+            state.failureMessage = "取消失败：系统下载任务已结束"
+            refreshModelDownloadStatus(provider)
+            Toast.makeText(this, "取消失败，下载任务可能已结束", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshActiveDownloadProgress() {
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        providerStateByProvider.filterValues { it.isActive }.forEach { (provider, state) ->
+            val downloadId = state.downloadId ?: return@forEach
+            val query = DownloadManager.Query().setFilterById(downloadId)
+            manager.query(query)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                state.bytesDownloaded = downloaded.coerceAtLeast(0L)
+                state.totalBytes = total.coerceAtLeast(0L)
+                state.percent = if (state.totalBytes > 0L) {
+                    ((downloaded.toDouble() / state.totalBytes.toDouble()) * 100).toInt().coerceIn(0, 100)
+                } else {
+                    0
+                }
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> {
+                        state.status = DownloadState.SUCCESS
+                        state.percent = 100
+                        state.failureMessage = null
+                    }
+                    DownloadManager.STATUS_FAILED -> {
+                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        state.status = DownloadState.FAILED
+                        state.failureMessage = "失败原因：${downloadReasonText(reason)}"
+                        state.downloadId = null
+                        pendingDownloads.remove(downloadId)
+                        pendingDownloadProviders.remove(downloadId)
+                    }
+                    DownloadManager.STATUS_PAUSED -> {
+                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                        state.status = DownloadState.PAUSED
+                        state.failureMessage = "等待中：${downloadReasonText(reason)}"
+                    }
+                    DownloadManager.STATUS_PENDING,
+                    DownloadManager.STATUS_RUNNING -> {
+                        state.status = DownloadState.DOWNLOADING
+                        state.failureMessage = null
+                    }
+                }
+                refreshModelDownloadStatus(provider)
+            }
+        }
+        if (!hasActiveDownload()) {
+            progressEndIfNeeded()
+        }
+    }
+
+    private fun hasActiveDownload(): Boolean {
+        return providerStateByProvider.values.any { it.isActive }
+    }
+
+    private fun progressEndIfNeeded() {
+        if (!hasActiveDownload()) {
+            progressHandler.removeCallbacks(progressPollRunnable)
+        }
+    }
+
+    private fun itemFromProvider(provider: String): ModelHubItem? {
+        return modelHubItems.firstOrNull { it.provider == provider }
+    }
+
+    private fun downloadReasonText(reason: Int): String {
+        return when (reason) {
+            DownloadManager.PAUSED_WAITING_TO_RETRY -> "等待重试"
+            DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "等待网络"
+            DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "等待 Wi-Fi"
+            DownloadManager.PAUSED_UNKNOWN -> "系统暂停"
+            DownloadManager.ERROR_CANNOT_RESUME -> "无法继续下载"
+            DownloadManager.ERROR_DEVICE_NOT_FOUND -> "存储不可用"
+            DownloadManager.ERROR_FILE_ALREADY_EXISTS -> "文件已存在"
+            DownloadManager.ERROR_FILE_ERROR -> "文件写入失败"
+            DownloadManager.ERROR_HTTP_DATA_ERROR -> "网络数据错误"
+            DownloadManager.ERROR_INSUFFICIENT_SPACE -> "空间不足"
+            DownloadManager.ERROR_TOO_MANY_REDIRECTS -> "重定向过多"
+            DownloadManager.ERROR_UNHANDLED_HTTP_CODE -> "HTTP 错误"
+            DownloadManager.ERROR_UNKNOWN -> "未知错误"
+            else -> "reason=$reason"
         }
     }
 
@@ -888,6 +1167,29 @@ class MainActivity : Activity() {
         val fileName: String,
         val url: String
     )
+
+    private enum class DownloadState {
+        IDLE,
+        DOWNLOADING,
+        PAUSED,
+        SUCCESS,
+        FAILED,
+        CANCELLED
+    }
+
+    private data class ModelDownloadState(
+        val item: ModelHubItem,
+        var status: DownloadState = DownloadState.IDLE,
+        var downloadId: Long? = null,
+        var destination: File? = null,
+        var bytesDownloaded: Long = 0L,
+        var totalBytes: Long = 0L,
+        var percent: Int = 0,
+        var failureMessage: String? = null
+    ) {
+        val isActive: Boolean
+            get() = status == DownloadState.DOWNLOADING || status == DownloadState.PAUSED
+    }
 
     private enum class RecommendationPreference(
         val progress: Int,
