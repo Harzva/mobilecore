@@ -5,11 +5,12 @@
 <h1 align="center">MobileCore / 推嘛 TuiMa</h1>
 
 <p align="center">
-  Android local LLM runtime for GGUF models, llama.cpp inference, OpenAI-compatible APIs, real benchmarks, and device-aware model recommendations.
+  Android local LLM runtime plus an iOS native skeleton for GGUF models, llama.cpp inference, OpenAI-compatible APIs, real benchmarks, and device-aware model recommendations.
 </p>
 
 <p align="center">
   <img alt="Android" src="https://img.shields.io/badge/Android-26%2B-3DDC84?style=flat-square" />
+  <img alt="iOS" src="https://img.shields.io/badge/iOS-SwiftUI%20skeleton-111827?style=flat-square" />
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-native%20app-7F52FF?style=flat-square" />
   <img alt="llama.cpp" src="https://img.shields.io/badge/llama.cpp-JNI%20backend-43D1E8?style=flat-square" />
   <img alt="GGUF" src="https://img.shields.io/badge/GGUF-models-6B8CFF?style=flat-square" />
@@ -25,7 +26,7 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
-MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device.
+MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device. The iOS app now has a buildable SwiftUI skeleton with Files import, Objective-C++ bridge stubs, and foreground localhost mock routes.
 
 It is designed to sit below MobileCode or any other mobile app that wants to call a local LLM through `http://127.0.0.1:8080/v1`.
 
@@ -34,6 +35,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Area | Current state |
 | --- | --- |
 | Android app | Kotlin app with `MainActivity`, foreground `MobileCoreService`, notification permission handling, and model actions |
+| iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama bridge stub, and foreground localhost mock API |
 | Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, and model management routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
@@ -92,6 +94,18 @@ Hugging Face is also supported:
 ```bash
 ./scripts/download-gguf.sh --provider hf --alias smollm2-135m-q4km
 ```
+
+Build the iOS skeleton:
+
+```bash
+cd ios-app
+xcodebuild -project MobileCoreiOS.xcodeproj \
+  -scheme MobileCoreiOS \
+  -destination 'generic/platform=iOS Simulator' \
+  build
+```
+
+Open `ios-app/MobileCoreiOS.xcodeproj` in Xcode to run the SwiftUI app, import a `.gguf` through Files, load the bridge stub, and start the foreground local API.
 
 ## API
 
@@ -170,6 +184,7 @@ flowchart TD
 ```text
 MobileCore/
 ├── android-app/              # Kotlin Android app, NanoHTTPD server, JNI bridge, CMake
+├── ios-app/                  # SwiftUI iOS app, Files GGUF import, Objective-C++ bridge stub
 ├── docs/                     # Architecture, API contracts, benchmark plan, README assets
 ├── examples/                 # MobileCode provider preset
 ├── game/                     # TuiMa Push Game product specs, schemas, Supabase draft, and source assets
@@ -193,7 +208,7 @@ Large local-only files are intentionally excluded from Git:
 - Add real-device benchmark profiles for speed, stability, memory, heat, and battery.
 - Expand model metadata parsing across more GGUF naming conventions and metadata keys.
 - Let benchmark history continuously improve recommendations per device.
-- Add a native iOS runtime after the Android path is stable.
+- Connect the iOS Objective-C++ bridge stub to real llama.cpp load/chat/unload.
 
 ## Name
 

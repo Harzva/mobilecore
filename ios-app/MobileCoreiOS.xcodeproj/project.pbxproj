@@ -1,0 +1,376 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B00000000000000000000110 /* MobileCoreApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000110 /* MobileCoreApp.swift */; };
+		B00000000000000000000111 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000111 /* ContentView.swift */; };
+		B00000000000000000000120 /* LocalAPIServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000120 /* LocalAPIServer.swift */; };
+		B00000000000000000000121 /* OpenAICompatibleRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000121 /* OpenAICompatibleRouter.swift */; };
+		B00000000000000000000130 /* ModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000130 /* ModelManager.swift */; };
+		B00000000000000000000131 /* ModelMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000131 /* ModelMetadata.swift */; };
+		B00000000000000000000140 /* MobileCoreRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000140 /* MobileCoreRuntime.swift */; };
+		B00000000000000000000141 /* LlamaRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000141 /* LlamaRuntime.swift */; };
+		B00000000000000000000142 /* RuntimeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000142 /* RuntimeMetrics.swift */; };
+		B00000000000000000000151 /* LlamaBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000151 /* LlamaBridge.mm */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000100 /* MobileCoreiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MobileCoreiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000110 /* MobileCoreApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCoreApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000111 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A00000000000000000000112 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000113 /* MobileCoreApp-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "MobileCoreApp-Bridging-Header.h"; sourceTree = "<group>"; };
+		A00000000000000000000120 /* LocalAPIServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAPIServer.swift; sourceTree = "<group>"; };
+		A00000000000000000000121 /* OpenAICompatibleRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenAICompatibleRouter.swift; sourceTree = "<group>"; };
+		A00000000000000000000130 /* ModelManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelManager.swift; sourceTree = "<group>"; };
+		A00000000000000000000131 /* ModelMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelMetadata.swift; sourceTree = "<group>"; };
+		A00000000000000000000140 /* MobileCoreRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCoreRuntime.swift; sourceTree = "<group>"; };
+		A00000000000000000000141 /* LlamaRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LlamaRuntime.swift; sourceTree = "<group>"; };
+		A00000000000000000000142 /* RuntimeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeMetrics.swift; sourceTree = "<group>"; };
+		A00000000000000000000150 /* LlamaBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LlamaBridge.h; sourceTree = "<group>"; };
+		A00000000000000000000151 /* LlamaBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LlamaBridge.mm; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C00000000000000000000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000003 /* MobileCoreApp */,
+				A00000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000100 /* MobileCoreiOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* MobileCoreApp */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000110 /* MobileCoreApp.swift */,
+				A00000000000000000000111 /* ContentView.swift */,
+				A00000000000000000000112 /* Info.plist */,
+				A00000000000000000000113 /* MobileCoreApp-Bridging-Header.h */,
+				A00000000000000000000004 /* API */,
+				A00000000000000000000005 /* Models */,
+				A00000000000000000000006 /* Runtime */,
+				A00000000000000000000007 /* Native */,
+			);
+			path = MobileCoreApp;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 /* API */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000120 /* LocalAPIServer.swift */,
+				A00000000000000000000121 /* OpenAICompatibleRouter.swift */,
+			);
+			path = API;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000130 /* ModelManager.swift */,
+				A00000000000000000000131 /* ModelMetadata.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000006 /* Runtime */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000140 /* MobileCoreRuntime.swift */,
+				A00000000000000000000141 /* LlamaRuntime.swift */,
+				A00000000000000000000142 /* RuntimeMetrics.swift */,
+			);
+			path = Runtime;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000007 /* Native */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000150 /* LlamaBridge.h */,
+				A00000000000000000000151 /* LlamaBridge.mm */,
+			);
+			path = Native;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		C00000000000000000000010 /* MobileCoreiOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E00000000000000000000000 /* Build configuration list for PBXNativeTarget "MobileCoreiOS" */;
+			buildPhases = (
+				C00000000000000000000030 /* Sources */,
+				C00000000000000000000020 /* Frameworks */,
+				C00000000000000000000040 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MobileCoreiOS;
+			productName = MobileCoreiOS;
+			productReference = A00000000000000000000100 /* MobileCoreiOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		C00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2605;
+				LastUpgradeCheck = 2605;
+				TargetAttributes = {
+					C00000000000000000000010 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = D00000000000000000000000 /* Build configuration list for PBXProject "MobileCoreiOS" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000001;
+			productRefGroup = A00000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C00000000000000000000010 /* MobileCoreiOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C00000000000000000000040 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C00000000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000110 /* MobileCoreApp.swift in Sources */,
+				B00000000000000000000111 /* ContentView.swift in Sources */,
+				B00000000000000000000120 /* LocalAPIServer.swift in Sources */,
+				B00000000000000000000121 /* OpenAICompatibleRouter.swift in Sources */,
+				B00000000000000000000130 /* ModelManager.swift in Sources */,
+				B00000000000000000000131 /* ModelMetadata.swift in Sources */,
+				B00000000000000000000140 /* MobileCoreRuntime.swift in Sources */,
+				B00000000000000000000141 /* LlamaRuntime.swift in Sources */,
+				B00000000000000000000142 /* RuntimeMetrics.swift in Sources */,
+				B00000000000000000000151 /* LlamaBridge.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		D00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		E00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MobileCoreApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.mobilecore.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "MobileCoreApp/MobileCoreApp-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MobileCoreApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ai.mobilecore.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "MobileCoreApp/MobileCoreApp-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D00000000000000000000000 /* Build configuration list for PBXProject "MobileCoreiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000001 /* Debug */,
+				D00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E00000000000000000000000 /* Build configuration list for PBXNativeTarget "MobileCoreiOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E00000000000000000000001 /* Debug */,
+				E00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = C00000000000000000000001 /* Project object */;
+}
