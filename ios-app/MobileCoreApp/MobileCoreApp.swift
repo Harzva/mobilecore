@@ -67,6 +67,7 @@ final class MobileCoreAppState: ObservableObject {
     private let modelManager = ModelManager()
     private let runtime = LlamaRuntime()
     private lazy var server = LocalAPIServer(runtime: runtime, modelManager: modelManager)
+    private var chatTask: Task<Void, Never>?
 
     @Published var models: [ModelMetadata] = []
     @Published var isServerRunning = false
@@ -76,6 +77,7 @@ final class MobileCoreAppState: ObservableObject {
     @Published var lastMetrics = RuntimeMetrics()
     @Published var backendInfo = BackendInfo(id: "llama.cpp", name: "llama.cpp", version: "linked", mode: "objective-c++")
     @Published var operation = MobileCoreOperation.idle
+    @Published var isChatCancelling = false
 
     var apiURL: String {
         "http://127.0.0.1:8080"
@@ -83,6 +85,13 @@ final class MobileCoreAppState: ObservableObject {
 
     var isBusy: Bool {
         operation.isActive
+    }
+
+    var canCancelChat: Bool {
+        if case .chatting = operation {
+            return true
+        }
+        return false
     }
 
     var modelDirectory: String {
@@ -186,23 +195,47 @@ final class MobileCoreAppState: ObservableObject {
             return
         }
 
+        isChatCancelling = false
+        lastReply = ""
         let runtime = self.runtime
-        Task {
+        let onToken: LlamaRuntime.StreamTokenHandler = { [weak self] tokenText, _ in
+            Task { @MainActor in
+                self?.appendStreamToken(tokenText)
+            }
+            return true
+        }
+
+        chatTask = Task {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
                     try runtime.chat(
                         messages: [ChatMessage(role: "user", content: "Hello from MobileCore iOS")],
-                        options: ChatOptions(model: model, maxTokens: 64)
+                        options: ChatOptions(model: model, maxTokens: 64),
+                        onToken: onToken
                     )
                 }.value
-                lastReply = result.message
+                if lastReply.isEmpty || lastReply != result.message {
+                    lastReply = result.message
+                }
                 refreshModels()
-                statusMessage = "Reply ready"
+                statusMessage = result.finishReason == "cancelled" ? "Reply cancelled" : "Reply ready"
             } catch {
                 statusMessage = error.localizedDescription
             }
+            isChatCancelling = false
             operation = .idle
+            chatTask = nil
         }
+    }
+
+    func cancelTestChat() {
+        guard canCancelChat else {
+            return
+        }
+
+        isChatCancelling = true
+        statusMessage = "Cancelling reply"
+        runtime.cancelCurrentOperation()
     }
 
     private func begin(_ nextOperation: MobileCoreOperation) -> Bool {
@@ -211,8 +244,20 @@ final class MobileCoreAppState: ObservableObject {
             return false
         }
 
+        isChatCancelling = false
         operation = nextOperation
         statusMessage = nextOperation.title
         return true
+    }
+
+    private func appendStreamToken(_ tokenText: String) {
+        guard canCancelChat else {
+            return
+        }
+
+        lastReply += tokenText
+        if !isChatCancelling {
+            statusMessage = "Streaming reply"
+        }
     }
 }

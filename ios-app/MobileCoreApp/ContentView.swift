@@ -21,11 +21,11 @@ struct ContentView: View {
                     hero
                     metricStrip
                     controlsSection
-                    modelsSection
-                    inferenceSection
-                    if !appState.lastReply.isEmpty {
+                    if appState.canCancelChat || !appState.lastReply.isEmpty {
                         replySection
                     }
+                    modelsSection
+                    inferenceSection
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 16)
@@ -104,7 +104,11 @@ struct ContentView: View {
             }
 
             if appState.operation.isActive {
-                OperationBanner(operation: appState.operation)
+                OperationBanner(
+                    operation: appState.operation,
+                    isCancelling: appState.isChatCancelling,
+                    onCancel: appState.canCancelChat ? { appState.cancelTestChat() } : nil
+                )
             }
         }
         .padding(20)
@@ -248,8 +252,12 @@ struct ContentView: View {
 
     private var replySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Reply", subtitle: "Generated text", systemImage: "text.bubble")
-            Text(appState.lastReply)
+            SectionHeader(
+                title: "Reply",
+                subtitle: appState.canCancelChat ? "Streaming output" : "Generated text",
+                systemImage: "text.bubble"
+            )
+            Text(replyText)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 .lineSpacing(3)
@@ -270,6 +278,12 @@ struct ContentView: View {
 
     private var memoryLabel: String {
         appState.lastMetrics.memoryPeakMb > 0 ? "\(appState.lastMetrics.memoryPeakMb) MB" : "n/a"
+    }
+
+    private var replyText: String {
+        appState.lastReply.isEmpty && appState.canCancelChat
+            ? "Waiting for first token..."
+            : appState.lastReply
     }
 }
 
@@ -318,6 +332,8 @@ private struct StatusPill: View {
 
 private struct OperationBanner: View {
     var operation: MobileCoreOperation
+    var isCancelling: Bool
+    var onCancel: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -340,6 +356,19 @@ private struct OperationBanner: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 0)
+            if let onCancel {
+                Button {
+                    onCancel()
+                } label: {
+                    Label(isCancelling ? "Cancelling" : "Cancel", systemImage: "xmark")
+                        .font(.caption.weight(.bold))
+                        .labelStyle(.titleAndIcon)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(Palette.blue)
+                .disabled(isCancelling)
+            }
         }
         .padding(12)
         .background(Palette.surface.opacity(0.86))

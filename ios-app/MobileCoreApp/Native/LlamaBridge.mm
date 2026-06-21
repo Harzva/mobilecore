@@ -3,6 +3,7 @@
 #include "llama.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -107,12 +108,14 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
     int32_t _lastPromptTokens;
     int32_t _lastCompletionTokens;
     long long _memoryPeakMb;
+    std::atomic_bool _cancelRequested;
 }
 
 - (instancetype)init {
     self = [super init];
     if (self) {
         _activeModelId = @"none";
+        _cancelRequested.store(false);
     }
     return self;
 }
@@ -157,6 +160,7 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
 
 - (BOOL)loadModelAtPath:(NSString *)path contextLength:(NSInteger)contextLength error:(NSError **)error {
     @synchronized (self) {
+        _cancelRequested.store(false);
         if (path.length == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
             if (error != nil) {
                 *error = BridgeError(1001, @"GGUF model file does not exist.");
@@ -213,6 +217,13 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
 }
 
 - (NSString *)chatWithMessagesJSON:(NSString *)messagesJSON optionsJSON:(NSString *)optionsJSON error:(NSError **)error {
+    return [self chatWithMessagesJSON:messagesJSON optionsJSON:optionsJSON tokenHandler:nil error:error];
+}
+
+- (NSString *)chatWithMessagesJSON:(NSString *)messagesJSON
+                        optionsJSON:(NSString *)optionsJSON
+                       tokenHandler:(LlamaBridgeTokenHandler)tokenHandler
+                              error:(NSError **)error {
     @synchronized (self) {
         if (_model == nullptr || _context == nullptr) {
             if (error != nil) {
@@ -231,6 +242,7 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
             ? [options[@"max_tokens"] integerValue]
             : 128;
         const int32_t maxTokens = static_cast<int32_t>(std::max<NSInteger>(1, std::min<NSInteger>(requestedMaxTokens, 256)));
+        _cancelRequested.store(false);
 
         const auto totalStart = std::chrono::steady_clock::now();
         const llama_vocab *vocab = llama_model_get_vocab(_model);
@@ -307,12 +319,19 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
         const auto promptEvalEnd = std::chrono::steady_clock::now();
 
         std::string generated;
+        std::string pendingUTF8;
         int32_t decodedTokens = 0;
+        bool cancelled = false;
         bool stoppedByLength = false;
         long long firstTokenMs = 0;
         const auto decodeStart = std::chrono::steady_clock::now();
 
         while (decodedTokens < maxTokens) {
+            if (_cancelRequested.load()) {
+                cancelled = true;
+                break;
+            }
+
             llama_token token = llama_sampler_sample(sampler, _context, -1);
             if (llama_vocab_is_eog(vocab, token)) {
                 break;
@@ -326,6 +345,7 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
             }
             if (pieceSize > 0) {
                 generated.append(piece.data(), static_cast<size_t>(pieceSize));
+                pendingUTF8.append(piece.data(), static_cast<size_t>(pieceSize));
             }
 
             batch = llama_batch_get_one(&token, 1);
@@ -334,8 +354,22 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
             if (decodedTokens == 1) {
                 firstTokenMs = ElapsedMs(totalStart, std::chrono::steady_clock::now());
             }
+            if (tokenHandler != nil && !pendingUTF8.empty()) {
+                NSString *tokenText = NSStringFromStdString(pendingUTF8);
+                if (tokenText.length > 0) {
+                    pendingUTF8.clear();
+                    if (!tokenHandler(tokenText, decodedTokens)) {
+                        cancelled = true;
+                        break;
+                    }
+                }
+            }
             if (decodedTokens >= maxTokens) {
                 stoppedByLength = true;
+                break;
+            }
+            if (_cancelRequested.load()) {
+                cancelled = true;
                 break;
             }
             if (llama_decode(_context, batch) != 0) {
@@ -347,8 +381,16 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
             }
         }
 
+        if (tokenHandler != nil && !pendingUTF8.empty()) {
+            NSString *tokenText = NSStringFromStdString(pendingUTF8);
+            if (tokenText.length > 0) {
+                tokenHandler(tokenText, decodedTokens);
+            }
+        }
+
         const auto decodeEnd = std::chrono::steady_clock::now();
         llama_sampler_free(sampler);
+        _cancelRequested.store(false);
 
         const long long promptEvalMs = ElapsedMs(promptEvalStart, promptEvalEnd);
         const long long decodeMs = ElapsedMs(decodeStart, decodeEnd);
@@ -369,7 +411,7 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
         return JSONStringFromObject(@{
             @"model": _activeModelId ?: requestedModel,
             @"message": NSStringFromStdString(generated),
-            @"finish_reason": stoppedByLength ? @"length" : @"stop",
+            @"finish_reason": cancelled ? @"cancelled" : (stoppedByLength ? @"length" : @"stop"),
             @"prompt_tokens": @(promptTokenCount),
             @"completion_tokens": @(decodedTokens),
             @"prompt_eval_ms": @(promptEvalMs),
@@ -383,8 +425,13 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
     }
 }
 
+- (void)cancelCurrentOperation {
+    _cancelRequested.store(true);
+}
+
 - (void)unloadModel {
     @synchronized (self) {
+        _cancelRequested.store(true);
         if (_context != nullptr) {
             llama_free(_context);
             _context = nullptr;

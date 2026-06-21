@@ -1,6 +1,8 @@
 import Foundation
 
 final class LlamaRuntime: MobileCoreRuntime {
+    typealias StreamTokenHandler = (String, Int) -> Bool
+
     private let bridge = LlamaBridge()
     private var loadedModelPathValue: String?
     private var metricsValue = RuntimeMetrics()
@@ -52,6 +54,10 @@ final class LlamaRuntime: MobileCoreRuntime {
     }
 
     func chat(messages: [ChatMessage], options: ChatOptions) throws -> ChatResult {
+        try chat(messages: messages, options: options, onToken: nil)
+    }
+
+    func chat(messages: [ChatMessage], options: ChatOptions, onToken: StreamTokenHandler?) throws -> ChatResult {
         let messagesJSON = try jsonString(
             messages.map { ["role": $0.role, "content": $0.content] }
         )
@@ -66,6 +72,11 @@ final class LlamaRuntime: MobileCoreRuntime {
         let responseJSON = bridge.chat(
             withMessagesJSON: messagesJSON,
             optionsJSON: optionsJSON,
+            tokenHandler: onToken.map { handler in
+                { tokenText, tokenIndex in
+                    handler(tokenText, tokenIndex)
+                }
+            },
             error: &bridgeError
         )
         if let bridgeError {
@@ -102,6 +113,10 @@ final class LlamaRuntime: MobileCoreRuntime {
             memoryPeakMb: result.memoryPeakMb
         )
         return result
+    }
+
+    func cancelCurrentOperation() {
+        bridge.cancelCurrentOperation()
     }
 
     func metrics() -> RuntimeMetrics {
