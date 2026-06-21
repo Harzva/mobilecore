@@ -450,9 +450,21 @@ button {
   border-radius: 18px;
   padding: 14px;
   display: grid;
-  grid-template-columns: 44px 1fr auto;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(120px, auto);
   gap: 14px;
   align-items: center;
+}
+
+.speed-cell {
+  text-align: right;
+}
+
+.speed-cell strong {
+  white-space: nowrap;
+}
+
+.leaderboard-summary {
+  margin-bottom: 18px;
 }
 
 .rank-badge {
@@ -464,6 +476,64 @@ button {
   color: white;
   font-weight: 950;
   background: linear-gradient(135deg, var(--teal), var(--blue));
+}
+
+.telemetry-card {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.telemetry-card h3 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.telemetry-item {
+  min-width: 0;
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid #dbeaf5;
+  display: grid;
+  gap: 5px;
+}
+
+.telemetry-item svg,
+.telemetry-note svg {
+  color: #2ab7a9;
+}
+
+.telemetry-item span,
+.telemetry-mini {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.telemetry-item strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.telemetry-note {
+  margin: 0;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.telemetry-mini {
+  margin-top: 5px;
 }
 
 .form-grid {

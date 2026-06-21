@@ -1,3 +1,4 @@
+import type { DeviceTelemetry } from "./deviceTelemetry";
 import type { GameState, ModelTier } from "./game/board";
 import type { ScoreSummary } from "./game/scoring";
 import type { MockBenchmarkResult } from "./game/mockBenchmark";
@@ -35,7 +36,27 @@ export interface Submission {
     stage_total: number;
     moves_used: number;
   };
+  telemetry?: {
+    cpu_activity_percent: number;
+    cpu_cores: number | null;
+    memory_gb: number | null;
+    battery_percent: number | null;
+    charging: boolean | null;
+    network_type: string;
+    viewport: string;
+    screen: string;
+    source: string;
+    recorded_at: string;
+  };
   created_at: string;
+}
+
+export interface SubmissionInput {
+  readonly playerName: string;
+  readonly deviceClass: string;
+  readonly modelName: string;
+  readonly speedTokS: number;
+  readonly telemetry?: DeviceTelemetry;
 }
 
 export const loadSubmissions = (): Submission[] => {
@@ -64,13 +85,15 @@ export const getBenchmarkMap = (state: GameState): Record<string, MockBenchmarkR
 export const buildSubmission = (
   state: GameState,
   score: ScoreSummary,
-  playerName: string,
-  deviceClass: string,
+  input: SubmissionInput,
 ): Submission => {
   const benchmarkValues = state.benchmarkLog.map((record) => record.result);
-  const avgDecode = benchmarkValues.length
+  const observedAvgDecode = benchmarkValues.length
     ? benchmarkValues.reduce((sum, item) => sum + item.decodeTokPerSec, 0) / benchmarkValues.length
     : 0;
+  const submittedSpeed = Number.isFinite(input.speedTokS) && input.speedTokS > 0
+    ? input.speedTokS
+    : observedAvgDecode;
   const firstToken = benchmarkValues.length
     ? Math.round(benchmarkValues.reduce((sum, item) => sum + item.firstTokenMs, 0) / benchmarkValues.length)
     : 0;
@@ -80,20 +103,21 @@ export const buildSubmission = (
   const clearedModels = state.modelBoxes
     .filter((box) => box.isCleared)
     .map((box) => box.modelTier);
+  const bestModel = input.modelName.trim() || clearedModels[clearedModels.length - 1] || "unknown";
 
   return {
     schema_version: "tuima-push-submission-v0.1",
     anonymous_id: `local_${crypto.randomUUID()}`,
-    player_name: playerName || "TuiStarter",
+    player_name: input.playerName || "TuiStarter",
     device: {
-      device_class: deviceClass || "Unknown Android",
+      device_class: input.deviceClass || "Unknown Android",
       os: "Android",
-      ram_class: "Demo",
-      chip_class: "Local browser",
+      ram_class: input.telemetry?.memoryGb ? `${input.telemetry.memoryGb}GB` : "Unknown",
+      chip_class: input.telemetry?.cpuCores ? `${input.telemetry.cpuCores} CPU cores` : "Unknown browser CPU",
     },
     runtime: {
       mobilecore_version: "0.1.0-demo",
-      backend: "mock",
+      backend: benchmarkValues.length ? "demo-speed" : "manual-speed",
       model_format: "GGUF",
     },
     board: {
@@ -103,15 +127,27 @@ export const buildSubmission = (
     },
     result: {
       total_score: score.totalScore,
-      avg_decode_tok_s: Number(avgDecode.toFixed(1)),
+      avg_decode_tok_s: Number(submittedSpeed.toFixed(1)),
       first_token_ms: firstToken,
       memory_peak_mb: memoryPeak,
-      best_model: clearedModels[clearedModels.length - 1] ?? "none",
+      best_model: bestModel,
       cleared_models: clearedModels,
-      stages_completed: clearedModels.length,
+      stages_completed: Math.max(clearedModels.length, submittedSpeed > 0 ? 1 : 0),
       stage_total: state.modelBoxes.length,
       moves_used: state.moveCount,
     },
+    telemetry: input.telemetry ? {
+      cpu_activity_percent: input.telemetry.cpuActivityPercent,
+      cpu_cores: input.telemetry.cpuCores,
+      memory_gb: input.telemetry.memoryGb,
+      battery_percent: input.telemetry.batteryPercent,
+      charging: input.telemetry.charging,
+      network_type: input.telemetry.networkType,
+      viewport: input.telemetry.viewport,
+      screen: input.telemetry.screen,
+      source: input.telemetry.source,
+      recorded_at: new Date().toISOString(),
+    } : undefined,
     created_at: new Date().toISOString(),
   };
 };

@@ -1,22 +1,20 @@
 import { ArrowRight, ChartNoAxesColumnIncreasing, Grid3X3, Play } from "lucide-react";
-import type { ScoreSummary } from "../game/scoring";
 import type { Submission } from "../storage";
 
 export function HomePage({
-  score,
   submissions,
   onStart,
   onCustom,
   onLeaderboard,
 }: {
-  score: ScoreSummary;
   submissions: Submission[];
   onStart: () => void;
   onCustom: () => void;
   onLeaderboard: () => void;
 }) {
-  const best = submissions[0]?.result.best_model ?? "0.5B";
-  const bestScore = submissions[0]?.result.total_score ?? score.totalScore;
+  const fastest = [...submissions].sort((a, b) => b.result.avg_decode_tok_s - a.result.avg_decode_tok_s)[0];
+  const best = fastest?.result.best_model ?? "0.5B";
+  const bestSpeed = fastest?.result.avg_decode_tok_s ?? 0;
 
   return (
     <div className="hero-grid">
@@ -55,11 +53,11 @@ export function HomePage({
             </div>
             <div className="metric">
               <span>Best score</span>
-              <strong>{bestScore.toLocaleString()}</strong>
+              <strong>{bestSpeed.toFixed(1)} tok/s</strong>
             </div>
             <div className="metric">
               <span>Mode</span>
-              <strong>Local demo</strong>
+              <strong>Speed board</strong>
             </div>
           </div>
         </div>

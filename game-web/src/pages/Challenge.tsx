@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Lightbulb, RotateCcw, Undo2, Upload } from "lucide-react";
 import { BoardGrid } from "../components/BoardGrid";
+import { DeviceTelemetryCard } from "../components/DeviceTelemetryCard";
 import { ScoreCard } from "../components/ScoreCard";
+import type { DeviceTelemetry } from "../deviceTelemetry";
 import {
   getProgressSummary,
   movePlayer,
@@ -31,7 +33,7 @@ const keyToDirection: Record<string, Direction> = {
 const eventText = (event: MoveEvent | null) => {
   if (!event) return "Use arrow keys or WASD. Push each model box into a matching phone tile.";
   if (!event.moved) return `Blocked by ${event.blockedBy}. Try another path.`;
-  if (event.type === "box-cleared") return `${event.clearedModelTier} cleared · ${event.benchmarkResult?.decodeTokPerSec} tok/s mock benchmark.`;
+  if (event.type === "box-cleared") return `${event.clearedModelTier} cleared · ${event.benchmarkResult?.decodeTokPerSec} tok/s demo speed.`;
   if (event.type === "box-push") return "Model pushed. Keep lining it up with the phone tile.";
   return "TuiMa moved.";
 };
@@ -39,11 +41,13 @@ const eventText = (event: MoveEvent | null) => {
 export function Challenge({
   gameState,
   score,
+  telemetry,
   onGameStateChange,
   onUpload,
 }: {
   gameState: GameState;
   score: ScoreSummary;
+  telemetry: DeviceTelemetry;
   onGameStateChange: (state: GameState) => void;
   onUpload: () => void;
 }) {
@@ -100,6 +104,7 @@ export function Challenge({
 
       <aside className="tool-panel">
         <ScoreCard state={gameState} score={score} />
+        <DeviceTelemetryCard telemetry={telemetry} />
         <div className="control-pad" aria-label="Movement controls">
           <button className="icon-button up" onClick={() => move("up")} type="button" title="Move up">
             <ArrowUp size={18} />

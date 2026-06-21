@@ -1,6 +1,6 @@
 # TuiMa Push Game MVP
 
-Static React/Vite MVP for the MobileCore benchmark game.
+Static React/Vite MVP for the MobileCore inference-speed game.
 
 ## Run Locally
 
@@ -31,13 +31,16 @@ https://harzva.github.io/mobilecore/
 - Challenge page with an 8x8 sokoban board.
 - Keyboard controls: arrow keys and WASD.
 - Model box pushing with cleared phone targets.
-- Mock benchmark speeds: 0.5B 90, 1.5B 70, 3B 45, 7B 28, 14B 12 tok/s.
+- Demo speed presets: 0.5B 90, 1.5B 70, 3B 45, 7B 28, 14B 12 tok/s.
 - Initial scoring: base score + speed score + completion bonus.
 - Undo / Reset / Hint controls.
-- Result Upload saves submissions to `localStorage`.
-- Leaderboard reads local submissions and includes a demo row.
+- Result Upload saves manual or demo-speed entries to `localStorage`.
+- Leaderboard ranks entries by inference speed (`tok/s`) and includes demo rows.
+- Phone Snapshot dynamically shows browser-available device data: CPU activity proxy, CPU cores, memory class, battery, network, viewport, and screen size.
 - Custom Grid supports JSON import, export, and local save.
 - Supabase config placeholders are present in `src/config.ts`; service role keys must never be used in the frontend.
+
+The current leaderboard does not start a real benchmark. It is a speed-ranking surface first. Browser telemetry is dynamic but not system-level Android CPU utilization; real MobileCore measurements can replace it later.
 
 ## GitHub Pages Deploy
 
@@ -53,7 +56,7 @@ Then publish `game-web/dist` through GitHub Pages.
 
 ## Next MobileCore API Work
 
-- Replace `runMockBenchmark()` with calls to MobileCore local API.
+- Replace demo speed presets with MobileCore local API measurements when the runtime flow is ready.
 - Add CORS support for GitHub Pages origin in MobileCore.
-- Sign benchmark results before upload.
+- Sign measured results before upload.
 - Add Supabase anonymous insert/read with RLS for real shared leaderboard.

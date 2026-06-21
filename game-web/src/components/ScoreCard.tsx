@@ -29,7 +29,7 @@ export function ScoreCard({ state, score }: { state: GameState; score: ScoreSumm
       </div>
       <div className="benchmark-list">
         {state.benchmarkLog.length === 0 && (
-          <p className="section-copy">Push a model box onto a compatible phone tile to run the mock benchmark.</p>
+          <p className="section-copy">Push a model box onto a compatible phone tile to record demo tok/s speed.</p>
         )}
         {state.benchmarkLog.map((record, index) => (
           <div className="benchmark-line" key={`${record.modelTier}-${index}`}>

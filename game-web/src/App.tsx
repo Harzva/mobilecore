@@ -14,6 +14,7 @@ import { Leaderboard } from "./pages/Leaderboard";
 import { ResultUpload } from "./pages/ResultUpload";
 import { createInitialGameState, type GameState } from "./game/board";
 import { calculateScore } from "./game/scoring";
+import { useDeviceTelemetry } from "./deviceTelemetry";
 import { getBenchmarkMap, loadSubmissions, saveSubmission, type Submission } from "./storage";
 
 type Page = "home" | "challenge" | "custom" | "leaderboard" | "upload";
@@ -30,6 +31,7 @@ function App() {
   const [page, setPage] = useState<Page>("home");
   const [gameState, setGameState] = useState<GameState>(() => createInitialGameState());
   const [submissions, setSubmissions] = useState<Submission[]>(() => loadSubmissions());
+  const telemetry = useDeviceTelemetry();
 
   const score = useMemo(
     () => calculateScore(gameState, getBenchmarkMap(gameState)),
@@ -70,7 +72,6 @@ function App() {
       <main className="app-main">
         {page === "home" && (
           <HomePage
-            score={score}
             submissions={submissions}
             onStart={() => setPage("challenge")}
             onCustom={() => setPage("custom")}
@@ -81,6 +82,7 @@ function App() {
           <Challenge
             gameState={gameState}
             score={score}
+            telemetry={telemetry}
             onGameStateChange={setGameState}
             onUpload={() => setPage("upload")}
           />
@@ -91,6 +93,7 @@ function App() {
           <ResultUpload
             gameState={gameState}
             score={score}
+            telemetry={telemetry}
             onSave={handleSaveSubmission}
             onBack={() => setPage("challenge")}
           />

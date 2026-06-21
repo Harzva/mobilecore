@@ -32,13 +32,23 @@ create table if not exists public.submissions (
   stages_completed integer not null default 0,
   stage_total integer not null default 5,
   moves_used integer,
+  cpu_activity_percent numeric check (cpu_activity_percent between 0 and 100),
+  cpu_cores integer check (cpu_cores is null or cpu_cores > 0),
+  memory_gb numeric check (memory_gb is null or memory_gb >= 0),
+  battery_percent numeric check (battery_percent is null or battery_percent between 0 and 100),
+  charging boolean,
+  network_type text,
+  telemetry_source text,
+  viewport text,
+  screen_size text,
+  telemetry_recorded_at timestamptz,
 
   status text not null default 'accepted' check (status in ('accepted', 'pending_review', 'rejected')),
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_submissions_leaderboard
-on public.submissions (board_id, total_score desc, avg_decode_tok_s desc, created_at asc)
+create index if not exists idx_submissions_speed_leaderboard
+on public.submissions (board_id, avg_decode_tok_s desc, total_score desc, created_at asc)
 where status = 'accepted';
 
 create index if not exists idx_submissions_device_class
@@ -70,12 +80,18 @@ select
   avg_decode_tok_s,
   first_token_ms,
   memory_peak_mb,
+  cpu_activity_percent,
+  cpu_cores,
+  memory_gb,
+  battery_percent,
+  network_type,
+  telemetry_source,
   best_model,
   cleared_models,
   stages_completed,
   stage_total,
   created_at,
-  dense_rank() over (partition by board_id order by total_score desc, avg_decode_tok_s desc, created_at asc) as rank
+  dense_rank() over (partition by board_id order by avg_decode_tok_s desc, total_score desc, created_at asc) as rank
 from public.submissions
 where status = 'accepted';
 
@@ -90,9 +106,13 @@ select
   total_score,
   avg_decode_tok_s,
   best_model,
+  cpu_activity_percent,
+  cpu_cores,
+  memory_gb,
+  battery_percent,
   cleared_models,
   created_at,
-  dense_rank() over (partition by board_id, device_class order by total_score desc, avg_decode_tok_s desc, created_at asc) as rank
+  dense_rank() over (partition by board_id, device_class order by avg_decode_tok_s desc, total_score desc, created_at asc) as rank
 from public.submissions
 where status = 'accepted';
 

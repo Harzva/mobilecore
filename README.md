@@ -39,7 +39,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
-| TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, mock benchmark scoring, local leaderboard, and custom board JSON flow |
+| TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, inference speed leaderboard, local entries, and custom board JSON flow |
 
 ## Visual Proof
 

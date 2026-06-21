@@ -88,6 +88,22 @@
       },
       "additionalProperties": false
     },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "cpu_activity_percent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "cpu_cores": { "type": ["integer", "null"], "minimum": 1 },
+        "memory_gb": { "type": ["number", "null"], "minimum": 0 },
+        "battery_percent": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "charging": { "type": ["boolean", "null"] },
+        "network_type": { "type": "string", "maxLength": 64 },
+        "viewport": { "type": "string", "maxLength": 32 },
+        "screen": { "type": "string", "maxLength": 32 },
+        "source": { "type": "string", "enum": ["browser", "mobilecore"] },
+        "recorded_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"
