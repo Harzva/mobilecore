@@ -34,13 +34,14 @@ https://harzva.github.io/mobilecore/
 - Demo speed presets: 0.5B 90, 1.5B 70, 3B 45, 7B 28, 14B 12 tok/s.
 - Initial scoring: base score + speed score + completion bonus.
 - Undo / Reset / Hint controls.
-- Result Upload saves manual or demo-speed entries to `localStorage`.
-- Leaderboard ranks entries by inference speed (`tok/s`) and includes demo rows.
+- Challenge calls the MobileCore local API for model-cleared speed measurements, then falls back to demo speed if localhost is unavailable.
+- Result Upload saves MobileCore, manual, or fallback entries to `localStorage`; signed MobileCore entries can sync to Supabase when configured.
+- Leaderboard ranks entries by inference speed (`tok/s`) and includes Supabase, local, and demo rows.
 - Phone Snapshot dynamically shows browser-available device data: CPU activity proxy, CPU cores, memory class, battery, network, viewport, and screen size.
-- Custom Grid supports JSON import, export, and local save.
-- Supabase config placeholders are present in `src/config.ts`; service role keys must never be used in the frontend.
+- Custom Grid supports JSON import, export, local save, and direct launch into Challenge.
+- Supabase config reads `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; service role keys must never be used in the frontend.
 
-The current leaderboard does not start a real benchmark. It is a speed-ranking surface first. Browser telemetry is dynamic but not system-level Android CPU utilization; real MobileCore measurements can replace it later.
+Browser telemetry is dynamic but not system-level Android CPU utilization; real MobileCore measurements are read through localhost when the Android service is running.
 
 ## GitHub Pages Deploy
 
@@ -56,7 +57,5 @@ Then publish `game-web/dist` through GitHub Pages.
 
 ## Next MobileCore API Work
 
-- Replace demo speed presets with MobileCore local API measurements when the runtime flow is ready.
-- Add CORS support for GitHub Pages origin in MobileCore.
-- Sign measured results before upload.
-- Add Supabase anonymous insert/read with RLS for real shared leaderboard.
+- Connect Supabase project secrets in GitHub Pages environment variables.
+- Replace the local signature secret with a server-side verification flow before production ranking.

@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
-import { Download, Save, Upload } from "lucide-react";
-import { sampleBoard } from "../data/sampleBoard";
+import { Download, Play, Save, Upload } from "lucide-react";
+import { sampleBoard, type SampleBoardDefinition } from "../data/sampleBoard";
 
 const STORAGE_KEY = "tuima-push-custom-board-v0.1";
 
-export function CustomGrid() {
+export function CustomGrid({ onUseBoard }: { onUseBoard: (board: SampleBoardDefinition) => void }) {
   const [jsonText, setJsonText] = useState(() => {
     return localStorage.getItem(STORAGE_KEY) ?? JSON.stringify(sampleBoard, null, 2);
   });
+  const [saveError, setSaveError] = useState<string | null>(null);
   const parsed = useMemo(() => {
     try {
       return { ok: true as const, value: JSON.parse(jsonText) };
@@ -19,6 +20,19 @@ export function CustomGrid() {
   const save = () => {
     if (!parsed.ok) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed.value, null, 2));
+    setSaveError(null);
+  };
+
+  const saveAndPlay = () => {
+    if (!parsed.ok) return;
+    try {
+      const board = parsed.value as SampleBoardDefinition;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(board, null, 2));
+      setSaveError(null);
+      onUseBoard(board);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Invalid board");
+    }
   };
 
   const exportJson = () => {
@@ -45,6 +59,9 @@ export function CustomGrid() {
             <button className="primary-button" disabled={!parsed.ok} onClick={save} type="button">
               <Save size={18} /> Save Local
             </button>
+            <button className="secondary-button" disabled={!parsed.ok} onClick={saveAndPlay} type="button">
+              <Play size={18} /> Save & Play
+            </button>
             <button className="secondary-button" onClick={exportJson} type="button">
               <Download size={18} /> Export JSON
             </button>
@@ -62,6 +79,7 @@ export function CustomGrid() {
             </label>
           </div>
           {!parsed.ok && <p className="privacy-note">JSON error: {parsed.error}</p>}
+          {saveError && <p className="privacy-note">Board error: {saveError}</p>}
         </div>
       </section>
       <aside className="tool-panel">
@@ -74,9 +92,7 @@ export function CustomGrid() {
             </span>
           ))}
         </div>
-        <p className="section-copy">
-          Saved boards stay in localStorage. Supabase custom board upload is intentionally left as a safe placeholder for the next integration step.
-        </p>
+        <p className="section-copy">Saved boards stay in localStorage and can be launched directly into Challenge.</p>
       </aside>
     </div>
   );

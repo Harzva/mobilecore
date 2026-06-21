@@ -104,6 +104,16 @@
       },
       "additionalProperties": false
     },
+    "benchmark_signature": {
+      "type": "object",
+      "properties": {
+        "payload": { "type": "string", "maxLength": 512 },
+        "value": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "verified": { "type": "boolean" }
+      },
+      "required": ["payload", "value", "verified"],
+      "additionalProperties": false
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"

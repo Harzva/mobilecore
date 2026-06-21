@@ -12,10 +12,12 @@ import { CustomGrid } from "./pages/CustomGrid";
 import { HomePage } from "./pages/Home";
 import { Leaderboard } from "./pages/Leaderboard";
 import { ResultUpload } from "./pages/ResultUpload";
-import { createInitialGameState, type GameState } from "./game/board";
+import { createGameStateFromBoardDefinition, createInitialGameState, type GameState } from "./game/board";
 import { calculateScore } from "./game/scoring";
 import { useDeviceTelemetry } from "./deviceTelemetry";
 import { getBenchmarkMap, loadSubmissions, saveSubmission, type Submission } from "./storage";
+import type { SampleBoardDefinition } from "./data/sampleBoard";
+import { insertSharedSubmission } from "./supabaseLeaderboard";
 
 type Page = "home" | "challenge" | "custom" | "leaderboard" | "upload";
 
@@ -41,7 +43,15 @@ function App() {
   const handleSaveSubmission = (submission: Submission) => {
     const next = saveSubmission(submission);
     setSubmissions(next);
+    insertSharedSubmission(submission).catch((error) => {
+      console.warn("Shared leaderboard upload skipped", error);
+    });
     setPage("leaderboard");
+  };
+
+  const handleUseCustomBoard = (board: SampleBoardDefinition) => {
+    setGameState(createGameStateFromBoardDefinition(board));
+    setPage("challenge");
   };
 
   return (
@@ -87,7 +97,7 @@ function App() {
             onUpload={() => setPage("upload")}
           />
         )}
-        {page === "custom" && <CustomGrid />}
+        {page === "custom" && <CustomGrid onUseBoard={handleUseCustomBoard} />}
         {page === "leaderboard" && <Leaderboard submissions={submissions} />}
         {page === "upload" && (
           <ResultUpload

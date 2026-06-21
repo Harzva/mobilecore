@@ -29,7 +29,7 @@ export function ScoreCard({ state, score }: { state: GameState; score: ScoreSumm
       </div>
       <div className="benchmark-list">
         {state.benchmarkLog.length === 0 && (
-          <p className="section-copy">Push a model box onto a compatible phone tile to record demo tok/s speed.</p>
+          <p className="section-copy">Push a model box onto a compatible phone tile to call MobileCore and record tok/s speed.</p>
         )}
         {state.benchmarkLog.map((record, index) => (
           <div className="benchmark-line" key={`${record.modelTier}-${index}`}>
@@ -37,7 +37,7 @@ export function ScoreCard({ state, score }: { state: GameState; score: ScoreSumm
               <Trophy size={16} /> {record.modelTier}
             </span>
             <strong>
-              <Gauge size={16} /> {record.result.decodeTokPerSec} tok/s
+              <Gauge size={16} /> {record.source === "pending" ? "measuring" : `${record.result.decodeTokPerSec.toFixed(1)} tok/s`}
             </strong>
           </div>
         ))}

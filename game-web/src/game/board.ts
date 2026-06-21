@@ -1,5 +1,6 @@
-import { runMockBenchmark, type MockBenchmarkResult } from "./mockBenchmark";
-import { getSampleBoardLayout } from "./levels";
+import { createPendingBenchmark, type BenchmarkResult, type BenchmarkSource } from "./benchmark";
+import type { SampleBoardDefinition } from "../data/sampleBoard";
+import { createBoardLayout, getSampleBoardLayout, type BoardLayout } from "./levels";
 
 export type Direction = "up" | "down" | "left" | "right";
 
@@ -58,7 +59,10 @@ export interface ModelBox {
 
 export interface BenchmarkRecord {
   readonly modelTier: ModelTier;
-  readonly result: MockBenchmarkResult;
+  readonly modelId: string;
+  readonly result: BenchmarkResult;
+  readonly source: BenchmarkSource;
+  readonly error?: string;
 }
 
 export type TileMovementTarget = "empty" | "bonus" | "speed" | "upload" | "target";
@@ -72,11 +76,15 @@ export interface MoveEvent {
   readonly from?: Coordinate;
   readonly to?: Coordinate;
   readonly clearedModelTier?: ModelTier;
-  readonly benchmarkResult?: MockBenchmarkResult;
+  readonly clearedModelId?: string;
+  readonly benchmarkResult?: BenchmarkResult;
 }
 
 export interface GameState {
   readonly boardId: string;
+  readonly boardName: string;
+  readonly boardVersion: number;
+  readonly boardType: "standard" | "custom";
   readonly board: BoardSize;
   readonly player: Player;
   readonly walls: readonly Wall[];
@@ -205,8 +213,7 @@ const cloneStateShallow = (state: GameState): GameState => ({
   moveHistory: [...state.moveHistory],
 });
 
-export const createStateFromLayout = (): GameState => {
-  const layout = getSampleBoardLayout();
+export const createStateFromLayout = (layout: BoardLayout = getSampleBoardLayout()): GameState => {
   const player = layout.tiles.find((tile) => tile.type === "player_start");
   const upload = layout.tiles.find((tile) => tile.type === "upload_badge");
   if (!player) {
@@ -228,6 +235,9 @@ export const createStateFromLayout = (): GameState => {
 
   return {
     boardId: layout.boardId,
+    boardName: layout.name,
+    boardVersion: layout.version,
+    boardType: layout.boardType,
     board: boardSize,
     player: { position: { x: player.x, y: player.y } },
     walls: layout.tiles
@@ -257,28 +267,33 @@ export const createStateFromLayout = (): GameState => {
 
 export const createInitialGameState = (): GameState => createStateFromLayout();
 
+export const createGameStateFromBoardDefinition = (board: SampleBoardDefinition): GameState =>
+  createStateFromLayout(createBoardLayout(board, "custom"));
+
 const pushBoxInto = (
   state: GameState,
   pushedFrom: Coordinate,
   pushedTo: Coordinate,
-): { nextModelBoxes: readonly ModelBox[]; clearedModelTier?: ModelTier; benchmarkResult?: MockBenchmarkResult } => {
+): { nextModelBoxes: readonly ModelBox[]; clearedModelTier?: ModelTier; clearedModelId?: string; benchmarkResult?: BenchmarkResult } => {
   const boxes = cloneModelBoxes(state.modelBoxes);
   const pushingIndex = boxes.findIndex((box) => equalCoord(box.position, pushedFrom));
   if (pushingIndex < 0) {
     return { nextModelBoxes: boxes };
   }
   const candidate = { ...boxes[pushingIndex], position: cloneCoordinate(pushedTo) };
-  let benchmarkResult: MockBenchmarkResult | undefined;
+  let benchmarkResult: BenchmarkResult | undefined;
   let clearedModelTier: ModelTier | undefined;
+  let clearedModelId: string | undefined;
   if (state.targetPhones.some((target) => equalCoord(target.position, pushedTo) && target.accepts.includes(candidate.modelTier))) {
     if (!candidate.isCleared) {
       clearedModelTier = candidate.modelTier;
-      benchmarkResult = runMockBenchmark(candidate.modelTier);
+      clearedModelId = candidate.modelId;
+      benchmarkResult = createPendingBenchmark(candidate.modelTier);
     }
     candidate.isCleared = true;
   }
   boxes[pushingIndex] = candidate;
-  return { nextModelBoxes: boxes, clearedModelTier, benchmarkResult };
+  return { nextModelBoxes: boxes, clearedModelTier, clearedModelId, benchmarkResult };
 };
 
 export const movePlayer = (state: GameState, direction: Direction): MoveResult => {
@@ -309,7 +324,7 @@ export const movePlayer = (state: GameState, direction: Direction): MoveResult =
       return { state, event: { type: "blocked", direction, blockedBy: "wall", moved: false, movedBoxId: currentBox.id, from: destination, to: pushedTo } };
     }
 
-    const { nextModelBoxes, clearedModelTier, benchmarkResult } = pushBoxInto(state, destination, pushedTo);
+    const { nextModelBoxes, clearedModelTier, clearedModelId, benchmarkResult } = pushBoxInto(state, destination, pushedTo);
     const tileEffects = collectStepBonus({ ...state, modelBoxes: nextModelBoxes }, pushedTo);
     const nextState: GameState = {
       ...cloneStateShallow(state),
@@ -320,7 +335,7 @@ export const movePlayer = (state: GameState, direction: Direction): MoveResult =
       bonusScore: state.bonusScore + tileEffects.bonusScore,
       uploadCompleted: tileEffects.uploadCompleted,
       benchmarkLog: benchmarkResult
-        ? [...state.benchmarkLog, { modelTier: currentBox.modelTier, result: benchmarkResult }]
+        ? [...state.benchmarkLog, { modelTier: currentBox.modelTier, modelId: currentBox.modelId, result: benchmarkResult, source: "pending" }]
         : state.benchmarkLog,
       moveHistory: [...state.moveHistory, cloneStateShallow(state)],
     };
@@ -335,6 +350,7 @@ export const movePlayer = (state: GameState, direction: Direction): MoveResult =
         from: destination,
         to: pushedTo,
         clearedModelTier,
+        clearedModelId,
         benchmarkResult,
       },
     };
@@ -367,3 +383,18 @@ export const undoMove = (state: GameState): GameState =>
   state.moveHistory.length > 0 ? cloneStateShallow(state.moveHistory[state.moveHistory.length - 1]) : state;
 
 export const resetGame = (): GameState => createInitialGameState();
+
+export const applyBenchmarkResult = (
+  state: GameState,
+  record: BenchmarkRecord,
+  result: BenchmarkResult,
+  source: Exclude<BenchmarkSource, "pending">,
+  error?: string,
+): GameState => ({
+  ...cloneStateShallow(state),
+  benchmarkLog: state.benchmarkLog.map((item) =>
+    item.modelTier === record.modelTier && item.modelId === record.modelId && item.source === "pending"
+      ? { ...item, result, source, error }
+      : item
+  ),
+});

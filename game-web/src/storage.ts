@@ -1,7 +1,7 @@
 import type { DeviceTelemetry } from "./deviceTelemetry";
 import type { GameState, ModelTier } from "./game/board";
 import type { ScoreSummary } from "./game/scoring";
-import type { MockBenchmarkResult } from "./game/mockBenchmark";
+import type { BenchmarkResult, BenchmarkSignature } from "./game/benchmark";
 
 const STORAGE_KEY = "tuima-push-submissions-v0.1";
 
@@ -48,6 +48,7 @@ export interface Submission {
     source: string;
     recorded_at: string;
   };
+  benchmark_signature?: BenchmarkSignature;
   created_at: string;
 }
 
@@ -76,9 +77,11 @@ export const saveSubmission = (submission: Submission): Submission[] => {
   return next;
 };
 
-export const getBenchmarkMap = (state: GameState): Record<string, MockBenchmarkResult> =>
-  state.benchmarkLog.reduce<Record<string, MockBenchmarkResult>>((acc, record) => {
-    acc[record.modelTier] = record.result;
+export const getBenchmarkMap = (state: GameState): Record<string, BenchmarkResult> =>
+  state.benchmarkLog.reduce<Record<string, BenchmarkResult>>((acc, record) => {
+    if (record.result.success && record.result.decodeTokPerSec > 0) {
+      acc[record.modelTier] = record.result;
+    }
     return acc;
   }, {});
 
@@ -88,18 +91,25 @@ export const buildSubmission = (
   input: SubmissionInput,
 ): Submission => {
   const benchmarkValues = state.benchmarkLog.map((record) => record.result);
-  const observedAvgDecode = benchmarkValues.length
-    ? benchmarkValues.reduce((sum, item) => sum + item.decodeTokPerSec, 0) / benchmarkValues.length
+  const successfulBenchmarkValues = benchmarkValues.filter((item) => item.success && item.decodeTokPerSec > 0);
+  const observedAvgDecode = successfulBenchmarkValues.length
+    ? successfulBenchmarkValues.reduce((sum, item) => sum + item.decodeTokPerSec, 0) / successfulBenchmarkValues.length
     : 0;
   const submittedSpeed = Number.isFinite(input.speedTokS) && input.speedTokS > 0
     ? input.speedTokS
     : observedAvgDecode;
-  const firstToken = benchmarkValues.length
-    ? Math.round(benchmarkValues.reduce((sum, item) => sum + item.firstTokenMs, 0) / benchmarkValues.length)
+  const firstToken = successfulBenchmarkValues.length
+    ? Math.round(successfulBenchmarkValues.reduce((sum, item) => sum + item.firstTokenMs, 0) / successfulBenchmarkValues.length)
     : 0;
-  const memoryPeak = benchmarkValues.length
-    ? Math.max(...benchmarkValues.map((item) => item.memoryPeakMb))
+  const memoryPeak = successfulBenchmarkValues.length
+    ? Math.max(...successfulBenchmarkValues.map((item) => item.memoryPeakMb))
     : 0;
+  const signedBenchmark = state.benchmarkLog.find((record) => record.result.signature?.verified);
+  const backend = state.benchmarkLog.some((record) => record.source === "mobilecore")
+    ? "mobilecore"
+    : state.benchmarkLog.some((record) => record.source === "demo-fallback")
+      ? "demo-fallback"
+      : "manual-speed";
   const clearedModels = state.modelBoxes
     .filter((box) => box.isCleared)
     .map((box) => box.modelTier);
@@ -116,14 +126,14 @@ export const buildSubmission = (
       chip_class: input.telemetry?.cpuCores ? `${input.telemetry.cpuCores} CPU cores` : "Unknown browser CPU",
     },
     runtime: {
-      mobilecore_version: "0.1.0-demo",
-      backend: benchmarkValues.length ? "demo-speed" : "manual-speed",
+      mobilecore_version: backend === "mobilecore" ? "0.1.0" : "0.1.0-demo",
+      backend,
       model_format: "GGUF",
     },
     board: {
       board_id: state.boardId,
-      board_version: 1,
-      board_type: "standard",
+      board_version: state.boardVersion,
+      board_type: state.boardType,
     },
     result: {
       total_score: score.totalScore,
@@ -148,6 +158,7 @@ export const buildSubmission = (
       source: input.telemetry.source,
       recorded_at: new Date().toISOString(),
     } : undefined,
+    benchmark_signature: signedBenchmark?.result.signature,
     created_at: new Date().toISOString(),
   };
 };

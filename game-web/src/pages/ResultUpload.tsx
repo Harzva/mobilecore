@@ -20,8 +20,9 @@ export function ResultUpload({
   onBack: () => void;
 }) {
   const clearedModels = gameState.modelBoxes.filter((box) => box.isCleared).map((box) => box.modelTier);
-  const avgSpeed = gameState.benchmarkLog.length
-    ? gameState.benchmarkLog.reduce((sum, item) => sum + item.result.decodeTokPerSec, 0) / gameState.benchmarkLog.length
+  const successfulBenchmarks = gameState.benchmarkLog.filter((item) => item.result.success && item.result.decodeTokPerSec > 0);
+  const avgSpeed = successfulBenchmarks.length
+    ? successfulBenchmarks.reduce((sum, item) => sum + item.result.decodeTokPerSec, 0) / successfulBenchmarks.length
     : 0;
   const lastClearedModel = clearedModels[clearedModels.length - 1] ?? "7B";
   const [playerName, setPlayerName] = useState("TuiStarter");
@@ -51,7 +52,7 @@ export function ResultUpload({
           </div>
         </div>
         <p className="privacy-note">
-          <ShieldCheck size={18} /> This page does not start a benchmark. It only saves the speed, model, device class, and local game context you enter.
+          <ShieldCheck size={18} /> MobileCore signed results can sync to Supabase when configured. Manual or fallback entries stay local.
         </p>
         <DeviceTelemetryCard telemetry={telemetry} />
       </section>

@@ -42,6 +42,9 @@ create table if not exists public.submissions (
   viewport text,
   screen_size text,
   telemetry_recorded_at timestamptz,
+  benchmark_signature text,
+  signature_payload text,
+  signature_verified boolean not null default false,
 
   status text not null default 'accepted' check (status in ('accepted', 'pending_review', 'rejected')),
   created_at timestamptz not null default now()
@@ -86,6 +89,9 @@ select
   battery_percent,
   network_type,
   telemetry_source,
+  benchmark_signature,
+  signature_payload,
+  signature_verified,
   best_model,
   cleared_models,
   stages_completed,
@@ -110,6 +116,8 @@ select
   cpu_cores,
   memory_gb,
   battery_percent,
+  benchmark_signature,
+  signature_verified,
   cleared_models,
   created_at,
   dense_rank() over (partition by board_id, device_class order by avg_decode_tok_s desc, total_score desc, created_at asc) as rank

@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { LeaderboardTable } from "../components/LeaderboardTable";
+import { isSupabaseConfigured } from "../config";
+import { fetchSharedLeaderboard, type RemoteLeaderboardState } from "../supabaseLeaderboard";
 import type { Submission } from "../storage";
 
 const demoSubmissions: Submission[] = [{
@@ -92,19 +95,49 @@ const demoSubmissions: Submission[] = [{
 }];
 
 export function Leaderboard({ submissions }: { submissions: Submission[] }) {
-  const rows = [...submissions, ...demoSubmissions].sort((a, b) =>
+  const [remoteRows, setRemoteRows] = useState<Submission[]>([]);
+  const [remoteState, setRemoteState] = useState<RemoteLeaderboardState>(isSupabaseConfigured ? "loaded" : "disabled");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isSupabaseConfigured) return;
+    fetchSharedLeaderboard()
+      .then((rows) => {
+        if (!cancelled) {
+          setRemoteRows(rows);
+          setRemoteState("loaded");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const merged = new Map<string, Submission>();
+  [...remoteRows, ...submissions, ...demoSubmissions].forEach((submission) => {
+    merged.set(`${submission.anonymous_id}:${submission.created_at}`, submission);
+  });
+  const rows = [...merged.values()].sort((a, b) =>
     b.result.avg_decode_tok_s - a.result.avg_decode_tok_s ||
     b.result.total_score - a.result.total_score ||
     a.created_at.localeCompare(b.created_at)
   );
   const fastest = rows[0];
+  const sourceLabel = remoteState === "disabled"
+    ? "LocalStorage and demo rows. Configure Supabase env vars to enable the shared leaderboard."
+    : remoteState === "error"
+      ? "Shared Supabase leaderboard is configured but could not be loaded; local rows are still shown."
+      : "Shared Supabase rows, local submissions, and demo rows are ranked together.";
 
   return (
     <section className="surface">
       <span className="section-kicker">Speed Leaderboard</span>
       <h2 className="section-title">Inference speed ranking</h2>
       <p className="section-copy">
-        Ranked by tokens per second. This MVP reads localStorage submissions plus demo rows; no benchmark is started from this page.
+        Ranked by tokens per second. {sourceLabel}
       </p>
       <div className="stat-grid leaderboard-summary">
         <div className="metric">

@@ -19,6 +19,7 @@ import fi.iki.elonen.NanoHTTPD.ResponseException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.security.MessageDigest
 
 class LocalApiServer(
     private val backend: RuntimeBackend,
@@ -31,39 +32,42 @@ class LocalApiServer(
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
     private val benchmarkStore = ModelBenchmarkStore(context.applicationContext)
+    private val allowedCorsOrigins = setOf(
+        "https://harzva.github.io",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    )
 
     override fun serve(session: IHTTPSession): Response {
         val method = session.method
-        return when {
+        if (method == Method.OPTIONS) {
+            return withCors(session, newFixedLengthResponse(Response.Status.OK, "application/json", "{}"))
+        }
+
+        val response = when {
             isHealthRoute(session) && method == Method.GET -> okResponse(buildHealth(backend.backendInfo()))
             isModelsRoute(session) && method == Method.GET -> {
-                if (!hasAuth(session)) return unauthorized()
-                okResponse(buildModels())
+                if (!hasAuth(session)) unauthorized() else okResponse(buildModels())
             }
 
             isChatRoute(session) && method == Method.POST -> {
-                if (!hasAuth(session)) return unauthorized()
-                onChat(session)
+                if (!hasAuth(session)) unauthorized() else onChat(session)
             }
 
             isMetricsRoute(session) && method == Method.GET -> {
-                if (!hasAuth(session)) return unauthorized()
-                okResponse(buildMetrics(backend.metrics()))
+                if (!hasAuth(session)) unauthorized() else okResponse(buildMetrics(backend.metrics()))
             }
 
             isRecommendationRoute(session) && method == Method.GET -> {
-                if (!hasAuth(session)) return unauthorized()
-                okResponse(buildRecommendations(session))
+                if (!hasAuth(session)) unauthorized() else okResponse(buildRecommendations(session))
             }
 
             isModelLoadRoute(session) && method == Method.POST -> {
-                if (!hasAuth(session)) return unauthorized()
-                onLoadModel(session)
+                if (!hasAuth(session)) unauthorized() else onLoadModel(session)
             }
 
             isModelDirsRoute(session) && method == Method.GET -> {
-                if (!hasAuth(session)) return unauthorized()
-                okResponse(buildModelDirs())
+                if (!hasAuth(session)) unauthorized() else okResponse(buildModelDirs())
             }
 
             else -> newFixedLengthResponse(
@@ -72,6 +76,7 @@ class LocalApiServer(
                 JSONObject(mapOf("error" to mapOf("message" to "not found"))).toString()
             )
         }
+        return withCors(session, response)
     }
 
     private fun isModelsRoute(session: IHTTPSession): Boolean {
@@ -126,12 +131,15 @@ class LocalApiServer(
             if (!result.model.equals(model, ignoreCase = true)) {
                 benchmarkStore.record(result.model, result)
             }
+            val created = System.currentTimeMillis() / 1000
+            val signaturePayload = benchmarkSignaturePayload(model, result, created)
+            val benchmarkSignature = sha256Hex("$signaturePayload|$apiKey")
 
             okResponse(
                 JSONObject().apply {
                     put("id", "chatcmpl-local-0001")
                     put("object", "chat.completion")
-                    put("created", System.currentTimeMillis() / 1000)
+                    put("created", created)
                     put("model", model)
                     put("choices", JSONArray().apply {
                         put(
@@ -166,6 +174,9 @@ class LocalApiServer(
                             put("decode_ms", result.decodeMs)
                             put("total_ms", result.totalMs)
                             put("memory_peak_mb", result.memoryPeakMb)
+                            put("signature_algorithm", "sha256")
+                            put("signature_payload", signaturePayload)
+                            put("benchmark_signature", benchmarkSignature)
                         }
                     )
                 }.toString(2)
@@ -462,6 +473,40 @@ class LocalApiServer(
         payload.put("active_model", backend.metrics().activeModel)
         payload.put("backend", info.id)
         return payload.toString(2)
+    }
+
+    private fun benchmarkSignaturePayload(model: String, result: ai.mobilecore.runtime.ChatResult, created: Long): String {
+        return listOf(
+            "mobilecore-benchmark-v1",
+            created.toString(),
+            model,
+            result.model,
+            result.promptEvalMs.toString(),
+            result.firstTokenMs.toString(),
+            result.decodeMs.toString(),
+            result.totalMs.toString(),
+            result.decodeTokensPerSecond.toString(),
+            result.completionTokens.toString(),
+            result.memoryPeakMb.toString()
+        ).joinToString("|")
+    }
+
+    private fun sha256Hex(value: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { byte -> "%02x".format(byte) }
+    }
+
+    private fun withCors(session: IHTTPSession, response: Response): Response {
+        val origin = session.headers["origin"] ?: session.headers["Origin"]
+        if (origin != null && allowedCorsOrigins.contains(origin)) {
+            response.addHeader("Access-Control-Allow-Origin", origin)
+            response.addHeader("Vary", "Origin")
+        }
+        response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.addHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-MobileCore-Client")
+        response.addHeader("Access-Control-Allow-Private-Network", "true")
+        response.addHeader("Access-Control-Max-Age", "86400")
+        return response
     }
 
     private fun okResponse(body: String) =

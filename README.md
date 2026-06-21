@@ -39,7 +39,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
-| TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, inference speed leaderboard, local entries, and custom board JSON flow |
+| TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, MobileCore localhost speed calls, signed result checks, Supabase-ready shared leaderboard, local fallback entries, and custom board JSON flow |
 
 ## Visual Proof
 
@@ -128,6 +128,8 @@ Read latest benchmark metrics:
 curl -H "Authorization: Bearer local" \
   http://127.0.0.1:8080/metrics
 ```
+
+The Android local API allows the GitHub Pages origin `https://harzva.github.io` plus localhost dev origins, including Private Network Access preflight headers. TuiMa Push verifies the `mobilecore.benchmark_signature` returned by `/v1/chat/completions` before sending a result to the shared Supabase leaderboard.
 
 ## Benchmarks
 

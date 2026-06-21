@@ -22,6 +22,7 @@ export function LeaderboardTable({ submissions }: { submissions: Submission[] })
               {submission.device.device_class} · {submission.result.best_model}
             </div>
             <div className="telemetry-mini">{telemetryText(submission)}</div>
+            {submission.benchmark_signature?.verified && <div className="telemetry-mini">MobileCore signature verified</div>}
           </div>
           <div className="speed-cell">
             <strong>{formatSpeed(submission.result.avg_decode_tok_s)} tok/s</strong>

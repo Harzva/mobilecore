@@ -1,6 +1,6 @@
 import type { GameState, ModelTier } from "./board";
 import { getClearedModels } from "./board";
-import type { MockBenchmarkResult } from "./mockBenchmark";
+import type { BenchmarkResult } from "./benchmark";
 
 export interface ScoreContribution {
   readonly modelTier: ModelTier;
@@ -41,7 +41,7 @@ const sortedTiers = (tiers: readonly ModelTier[]): readonly ModelTier[] =>
 
 export const calculateScore = (
   state: GameState,
-  benchmarkMap: Record<string, MockBenchmarkResult> = {},
+  benchmarkMap: Record<string, BenchmarkResult> = {},
 ): ScoreSummary => {
   const clearedModels = sortedTiers(getClearedModels(state));
   const details: ScoreContribution[] = clearedModels.map((modelTier) => {

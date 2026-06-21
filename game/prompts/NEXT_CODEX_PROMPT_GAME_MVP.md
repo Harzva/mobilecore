@@ -58,7 +58,7 @@ game-web/
 │   │   ├── board.ts
 │   │   ├── levels.ts
 │   │   ├── scoring.ts
-│   │   └── mockBenchmark.ts
+│   │   └── benchmark.ts
 │   ├── data/
 │   │   └── sampleBoard.ts
 │   ├── components/

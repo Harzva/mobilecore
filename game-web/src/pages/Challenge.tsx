@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Lightbulb, RotateCcw, Undo2, Upload } from "lucide-react";
 import { BoardGrid } from "../components/BoardGrid";
 import { DeviceTelemetryCard } from "../components/DeviceTelemetryCard";
 import { ScoreCard } from "../components/ScoreCard";
 import type { DeviceTelemetry } from "../deviceTelemetry";
 import {
+  applyBenchmarkResult,
   getProgressSummary,
   movePlayer,
   resetGame,
   undoMove,
+  type BenchmarkRecord,
   type Direction,
   type GameState,
   type MoveEvent,
 } from "../game/board";
+import { runDemoBenchmark } from "../game/benchmark";
 import type { ScoreSummary } from "../game/scoring";
+import { runMobileCoreBenchmark } from "../mobilecoreClient";
 
 const keyToDirection: Record<string, Direction> = {
   ArrowUp: "up",
@@ -33,7 +37,7 @@ const keyToDirection: Record<string, Direction> = {
 const eventText = (event: MoveEvent | null) => {
   if (!event) return "Use arrow keys or WASD. Push each model box into a matching phone tile.";
   if (!event.moved) return `Blocked by ${event.blockedBy}. Try another path.`;
-  if (event.type === "box-cleared") return `${event.clearedModelTier} cleared · ${event.benchmarkResult?.decodeTokPerSec} tok/s demo speed.`;
+  if (event.type === "box-cleared") return `${event.clearedModelTier} cleared · measuring with MobileCore local API.`;
   if (event.type === "box-push") return "Model pushed. Keep lining it up with the phone tile.";
   return "TuiMa moved.";
 };
@@ -48,11 +52,12 @@ export function Challenge({
   gameState: GameState;
   score: ScoreSummary;
   telemetry: DeviceTelemetry;
-  onGameStateChange: (state: GameState) => void;
+  onGameStateChange: Dispatch<SetStateAction<GameState>>;
   onUpload: () => void;
 }) {
   const [lastEvent, setLastEvent] = useState<MoveEvent | null>(null);
   const [hint, setHint] = useState(false);
+  const inFlight = useRef(new Set<string>());
   const progress = getProgressSummary(gameState);
 
   const move = useCallback((direction: Direction) => {
@@ -60,6 +65,26 @@ export function Challenge({
     onGameStateChange(result.state);
     setLastEvent(result.event);
   }, [gameState, onGameStateChange]);
+
+  useEffect(() => {
+    const pending = gameState.benchmarkLog.filter((record) => record.source === "pending");
+    pending.forEach((record: BenchmarkRecord) => {
+      const key = `${record.modelTier}:${record.modelId}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
+      runMobileCoreBenchmark(record.modelTier, record.modelId)
+        .then((result) => {
+          onGameStateChange((current) => applyBenchmarkResult(current, record, result, "mobilecore"));
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "MobileCore API unavailable";
+          onGameStateChange((current) => applyBenchmarkResult(current, record, runDemoBenchmark(record.modelTier), "demo-fallback", message));
+        })
+        .finally(() => {
+          inFlight.current.delete(key);
+        });
+    });
+  }, [gameState.benchmarkLog, onGameStateChange]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -76,7 +101,7 @@ export function Challenge({
     <div className="challenge-layout">
       <section className="surface board-wrap">
         <div>
-          <span className="section-kicker">Device Challenge 04</span>
+          <span className="section-kicker">{gameState.boardName}</span>
           <h2 className="section-title">Push the model boxes</h2>
           <p className="section-copy">{eventText(lastEvent)}</p>
         </div>
