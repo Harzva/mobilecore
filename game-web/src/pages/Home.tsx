@@ -1,4 +1,4 @@
-import { ArrowRight, ChartNoAxesColumnIncreasing, Grid3X3, Play } from "lucide-react";
+import { ChartNoAxesColumnIncreasing, Cpu, Grid3X3, Play, Trophy } from "lucide-react";
 import type { Submission } from "../storage";
 
 export function HomePage({
@@ -15,18 +15,17 @@ export function HomePage({
   const fastest = [...submissions].sort((a, b) => b.result.avg_decode_tok_s - a.result.avg_decode_tok_s)[0];
   const best = fastest?.result.best_model ?? "0.5B";
   const bestSpeed = fastest?.result.avg_decode_tok_s ?? 0;
+  const pipeline = ["0.5B", "1.5B", "3B", "7B", "14B"];
 
   return (
-    <div className="hero-grid">
+    <div className="home-shell">
       <section className="hero-panel">
-        <div>
-          <div className="eyebrow">TuiMa 推嘛 · Benchmark by playing</div>
+        <div className="hero-copy-block">
+          <div className="eyebrow">TuiMa 推嘛</div>
           <h1 className="hero-title">Run model on your phone</h1>
           <p className="hero-copy">
-            Play a soft sokoban challenge, push model boxes into phone targets, and discover which local LLM tiers your device can run.
+            Push model boxes into phone targets, measure local LLM speed, and climb the shared inference board.
           </p>
-        </div>
-        <div>
           <div className="action-row">
             <button className="primary-button" onClick={onStart} type="button">
               <Play size={19} /> Start Challenge
@@ -38,38 +37,40 @@ export function HomePage({
               <ChartNoAxesColumnIncreasing size={19} /> Leaderboard
             </button>
           </div>
-          <div className="path-strip" aria-label="0.5B to 1.5B to 3B to 7B to 14B to Phone cleared">
-            {["0.5B", "1.5B", "3B", "7B", "14B", "Phone ✓"].map((item, index, items) => (
-              <div className="path-step" key={item}>
-                <span>{item}</span>
-                {index < items.length - 1 && <ArrowRight size={16} aria-hidden="true" />}
-              </div>
-            ))}
+        </div>
+
+        <div className="model-lane" aria-label="Model tiers">
+          {pipeline.map((item) => (
+            <span className="model-chip" key={item}>{item}</span>
+          ))}
+          <span className="phone-chip">Phone ready</span>
+        </div>
+
+        <div className="hero-metrics">
+          <div className="metric compact">
+            <Cpu size={18} />
+            <span>Best model</span>
+            <strong>{best}</strong>
           </div>
-          <div className="stat-grid">
-            <div className="metric">
-              <span>Best model</span>
-              <strong>{best}</strong>
-            </div>
-            <div className="metric">
-              <span>Best score</span>
-              <strong>{bestSpeed.toFixed(1)} tok/s</strong>
-            </div>
-            <div className="metric">
-              <span>Mode</span>
-              <strong>Speed board</strong>
-            </div>
+          <div className="metric compact">
+            <Trophy size={18} />
+            <span>Top speed</span>
+            <strong>{bestSpeed.toFixed(1)} tok/s</strong>
           </div>
         </div>
       </section>
-      <div
-        className="hero-art"
-        role="img"
-        aria-label="TuiMa Push visual reference"
-        style={{
-          backgroundImage: `linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.7)), url("${import.meta.env.BASE_URL}assets/tuima-push-home.png")`,
-        }}
-      ></div>
+
+      <aside className="hero-preview" aria-label="TuiMa app preview">
+        <div className="preview-header">
+          <span>TuiMa Push</span>
+          <strong>{bestSpeed.toFixed(1)} tok/s</strong>
+        </div>
+        <img
+          alt="TuiMa Push home screen"
+          className="hero-screenshot"
+          src={`${import.meta.env.BASE_URL}assets/tuima-push-home.png`}
+        />
+      </aside>
     </div>
   );
 }
