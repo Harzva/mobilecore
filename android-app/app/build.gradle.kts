@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val debugSignedRelease = providers
+    .gradleProperty("mobilecore.debugSignedRelease")
+    .map { it.toBoolean() }
+    .getOrElse(false)
+
 android {
     namespace = "com.mobilecore.app"
     compileSdk = 34
@@ -12,8 +17,8 @@ android {
         applicationId = "com.mobilecore.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2-rc1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -34,6 +39,9 @@ android {
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
+            if (debugSignedRelease) {
+                signingConfig = signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -53,4 +61,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.18.0")
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }

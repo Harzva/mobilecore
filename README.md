@@ -209,7 +209,9 @@ Large local-only files are intentionally excluded from Git:
 - Add real-device benchmark profiles for speed, stability, memory, heat, and battery.
 - Expand model metadata parsing across more GGUF naming conventions and metadata keys.
 - Let benchmark history continuously improve recommendations per device.
+- Complete Vision OCR / CLIP preprocessing and postprocessing on top of the bundled ONNX Runtime / TFLite model-load probes.
 - Add iOS streaming chat, configurable sampling, benchmark persistence, and Metal acceleration.
+- Add optional Google Sign-In later for shared leaderboards, cloud score sync, and profile continuity. Local inference, model import, and localhost APIs should continue to work without login.
 
 ## Name
 

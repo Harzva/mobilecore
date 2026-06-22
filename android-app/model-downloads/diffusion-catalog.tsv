@@ -1,0 +1,10 @@
+# alias	provider	repo	engine	format	approx_size_mb	stage	reason
+# Diffusion models are intentionally separate from GGUF LLM catalog.
+# MobileCore should load these through MNN or ONNX Runtime Mobile, not llama.cpp.
+sd15-mnn-opencl	modelscope	MNN/stable-diffusion-v1-5-mnn-opencl	MNN	MNN	1101	rc-candidate	Best first Android target: MNN OpenCL package, around 1.1GB, broad mobile GPU path.
+sd15-mnn-gpu	modelscope	MNN/stable-diffusion-v1-5-mnn-gpu	MNN	MNN	1101	rc-candidate	Alternative MNN GPU package for device comparison and fallback testing.
+sd15-mnn-cpu	modelscope	MNN/stable-diffusion-v1-5-mnn	MNN	MNN	2202	baseline	CPU/reference package; larger because it carries duplicated model assets, useful for correctness checks.
+bk-sdm-tiny	modelscope	nota-ai/bk-sdm-tiny	convert-required	diffusers	9548	research	Small SD architecture candidate, but repo is PyTorch/diffusers; needs conversion to MNN/ONNX before Android runtime.
+lcm-dreamshaper-int8-ov	modelscope	OpenVINO/LCM_Dreamshaper_v7-int8-ov	convert-required	OpenVINO	2187	research	Few-step LCM/int8 candidate; promising latency profile, but OpenVINO assets need Android-compatible conversion.
+dreamshaper-lcm-onnx	modelscope	rockerBOO/dreamshaper-8-lcm-onnx	ONNX	Runtime Mobile	2106	prototype	ONNX LCM candidate for ONNX Runtime Mobile experiments.
+sd-turbo	modelscope	AI-ModelScope/sd-turbo	convert-required	diffusers	12358	future	Fast one/few-step model, but too large for first mobile release unless converted and aggressively optimized.

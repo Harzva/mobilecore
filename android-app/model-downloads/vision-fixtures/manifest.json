@@ -1,0 +1,7 @@
+{
+  "object": "mobilecore.vision_fixture",
+  "model": "clip-cifar10-smoke.onnx",
+  "sidecar": "cifar10-text-embeddings.json",
+  "task": "clip-cifar10-smoke",
+  "note": "Pipeline fixture only; not a real CLIP quality benchmark."
+}

@@ -19,7 +19,7 @@ data class GgufModelMetadata(
 
 object GgufMetadataReader {
     private val quantRegex = Regex(
-        "(?i)(?:^|[-_.])((?:I)?Q[2-8](?:_[A-Z0-9]+){0,3}|F16|BF16)(?:[-_.]|$)"
+        "(?i)(?:^|[-_.])((?:I)?Q[1-8](?:_[A-Z0-9]+){0,3}|F16|BF16)(?:[-_.]|$)"
     )
     private val parameterRegex = Regex("(?i)(\\d+(?:\\.\\d+)?)\\s*b(?:illion)?")
 

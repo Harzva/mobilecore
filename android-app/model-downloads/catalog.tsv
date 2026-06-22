@@ -1,7 +1,14 @@
-# alias	provider	repo	file
-# Keep this file tab-separated. Use provider values: hf, modelscope.
-# The two default aliases are intentionally small enough for first Android QA.
-smollm2-135m-q4km	hf	bartowski/SmolLM2-135M-Instruct-GGUF	SmolLM2-135M-Instruct-Q4_K_M.gguf
-qwen2.5-0.5b-q4km	hf	Qwen/Qwen2.5-0.5B-Instruct-GGUF	qwen2.5-0.5b-instruct-q4_k_m.gguf
-qwen2.5-0.5b-q4km	modelscope	Qwen/Qwen2.5-0.5B-Instruct-GGUF	qwen2.5-0.5b-instruct-q4_k_m.gguf
-
+# alias	provider	repo	file	params_b	quant	size_mb	tier	tags
+# Keep this file tab-separated. The first four columns stay compatible with older scripts.
+# Curated release set: 10 representative single-file GGUF models from ModelScope.
+# tier values are comma-separated groups used by scripts/download-gguf.sh: tiny, phone, tablet, heavy, recommended.
+qwen2.5-0.5b-q4km	modelscope	Qwen/Qwen2.5-0.5B-Instruct-GGUF	qwen2.5-0.5b-instruct-q4_k_m.gguf	0.5	Q4_K_M	469	tiny,phone,recommended	qwen instruct baseline
+qwen3-0.6b-iq1s	modelscope	unsloth/Qwen3-0.6B-GGUF	Qwen3-0.6B-UD-IQ1_S.gguf	0.6	UD-IQ1_S	205	tiny,phone,recommended	qwen3 fastest smallest
+qwen3-0.6b-q4km	modelscope	unsloth/Qwen3-0.6B-GGUF	Qwen3-0.6B-Q4_K_M.gguf	0.6	Q4_K_M	468	tiny,phone	qwen3 balanced
+qwen2.5-1.5b-q4km	modelscope	Qwen/Qwen2.5-1.5B-Instruct-GGUF	qwen2.5-1.5b-instruct-q4_k_m.gguf	1.5	Q4_K_M	1066	phone,recommended	qwen instruct balanced
+qwen3-1.7b-q2k	modelscope	unsloth/Qwen3-1.7B-GGUF	Qwen3-1.7B-Q2_K.gguf	1.7	Q2_K	742	phone,recommended	qwen3 small
+deepseek-r1-qwen-1.5b-q2k	modelscope	unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF	DeepSeek-R1-Distill-Qwen-1.5B-Q2_K.gguf	1.5	Q2_K	718	phone,recommended	deepseek reasoning small
+phi3.1-mini-iq2m	modelscope	AI-ModelScope/Phi-3.1-mini-4k-instruct-GGUF	Phi-3.1-mini-4k-instruct-IQ2_M.gguf	3.8	IQ2_M	1255	phone,tablet,recommended	phi instruct compact
+qwen3-4b-q2k	modelscope	unsloth/Qwen3-4B-GGUF	Qwen3-4B-Q2_K.gguf	4	Q2_K	1592	tablet,recommended	qwen3 small
+deepseek-r1-qwen-7b-q2k	modelscope	unsloth/DeepSeek-R1-Distill-Qwen-7B-GGUF	DeepSeek-R1-Distill-Qwen-7B-Q2_K.gguf	7	Q2_K	2876	tablet,heavy,recommended	deepseek reasoning 7b compact
+qwen3-8b-iq1s	modelscope	unsloth/Qwen3-8B-GGUF	Qwen3-8B-UD-IQ1_S.gguf	8	UD-IQ1_S	2170	tablet,heavy	qwen3 8b compact

@@ -1,6 +1,7 @@
 package ai.mobilecore.network
 
 import ai.mobilecore.runtime.BackendInfo
+import ai.mobilecore.runtime.BenchmarkLeaderboardStore
 import ai.mobilecore.runtime.ChatMessage
 import ai.mobilecore.runtime.ChatOptions
 import ai.mobilecore.runtime.DeviceRecommendation
@@ -13,6 +14,10 @@ import ai.mobilecore.runtime.RecommendationScoringConfig
 import ai.mobilecore.runtime.RecommendationScoringConfigSource
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeModel
+import ai.mobilecore.runtime.SharedLeaderboardClient
+import ai.mobilecore.runtime.SharedLeaderboardConfigSource
+import ai.mobilecore.runtime.VisionModelManager
+import ai.mobilecore.runtime.VisionRuntime
 import android.content.Context
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.ResponseException
@@ -29,9 +34,14 @@ class LocalApiServer(
     host: String = "127.0.0.1",
     port: Int = 8080
 ) : NanoHTTPD(host, port) {
+    private val apiVersion = "0.1.2-rc1"
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
     private val benchmarkStore = ModelBenchmarkStore(context.applicationContext)
+    private val leaderboardStore = BenchmarkLeaderboardStore(context.applicationContext)
+    private val sharedLeaderboardConfigSource = SharedLeaderboardConfigSource(context.applicationContext)
+    private val visionModelManager = VisionModelManager(context.applicationContext)
+    private val visionRuntime = VisionRuntime(visionModelManager)
     private val allowedCorsOrigins = setOf(
         "https://harzva.github.io",
         "http://localhost:5173",
@@ -60,6 +70,34 @@ class LocalApiServer(
 
             isRecommendationRoute(session) && method == Method.GET -> {
                 if (!hasAuth(session)) unauthorized() else okResponse(buildRecommendations(session))
+            }
+
+            isLocalLeaderboardRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(buildLocalLeaderboard(session))
+            }
+
+            isSharedLeaderboardRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(buildSharedLeaderboard(session))
+            }
+
+            isSharedLeaderboardRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(syncSharedLeaderboard(session))
+            }
+
+            isVisionStatusRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(visionRuntime.status().toString(2))
+            }
+
+            isVisionModelsRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(visionModelManager.toJson().toString(2))
+            }
+
+            isVisionOcrRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(runVisionOcr(session))
+            }
+
+            isVisionClassifyRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(runVisionClassify(session))
             }
 
             isModelLoadRoute(session) && method == Method.POST -> {
@@ -97,6 +135,30 @@ class LocalApiServer(
 
     private fun isRecommendationRoute(session: IHTTPSession): Boolean {
         return session.uri == "/v1/recommendations"
+    }
+
+    private fun isLocalLeaderboardRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/leaderboard/local" || session.uri == "/v1/leaderboard/local"
+    }
+
+    private fun isSharedLeaderboardRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/leaderboard/shared" || session.uri == "/v1/leaderboard/shared"
+    }
+
+    private fun isVisionStatusRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/vision/status" || session.uri == "/v1/vision/status"
+    }
+
+    private fun isVisionModelsRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/vision/models" || session.uri == "/v1/vision/models"
+    }
+
+    private fun isVisionOcrRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/vision/ocr" || session.uri == "/v1/vision/ocr"
+    }
+
+    private fun isVisionClassifyRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/vision/classify" || session.uri == "/v1/vision/classify"
     }
 
     private fun isModelLoadRoute(session: IHTTPSession): Boolean {
@@ -198,7 +260,7 @@ class LocalApiServer(
             }
 
             if (model.isBlank()) {
-                return badRequest("No GGUF model found. Push one to the app external models directory first.")
+                return badRequest("未找到 GGUF 模型。请先在应用内导入或下载模型。")
             }
 
             val options = LoadOptions(
@@ -349,6 +411,43 @@ class LocalApiServer(
         return payload.toString(2)
     }
 
+    private fun buildLocalLeaderboard(session: IHTTPSession): String {
+        val limit = queryParam(session, "limit")?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+        return leaderboardStore.toJson(maxItems = limit).toString(2)
+    }
+
+    private fun buildSharedLeaderboard(session: IHTTPSession): String {
+        val limit = queryParam(session, "limit")?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+        return sharedLeaderboardClient().fetch(limit).toString(2)
+    }
+
+    private fun syncSharedLeaderboard(session: IHTTPSession): String {
+        val limit = queryParam(session, "limit")?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+        val entries = leaderboardStore.entries().take(limit)
+        val result = sharedLeaderboardClient().upload(entries)
+        result.put("local_count", entries.size)
+        return result.toString(2)
+    }
+
+    private fun sharedLeaderboardClient(): SharedLeaderboardClient {
+        return SharedLeaderboardClient(sharedLeaderboardConfigSource.load())
+    }
+
+    private fun runVisionOcr(session: IHTTPSession): String {
+        val request = JSONObject(parseBody(session))
+        val imageName = request.optString("image_name", "selected-image").ifBlank { "selected-image" }
+        val imagePath = request.optString("image_path", "")
+        return visionRuntime.ocr(imageName, imagePath).toString(2)
+    }
+
+    private fun runVisionClassify(session: IHTTPSession): String {
+        val request = JSONObject(parseBody(session))
+        val imageName = request.optString("image_name", "selected-image").ifBlank { "selected-image" }
+        val imagePath = request.optString("image_path", "")
+        val dataset = request.optString("dataset", "clip").ifBlank { "clip" }
+        return visionRuntime.classify(imageName, imagePath, dataset).toString(2)
+    }
+
     private fun scoringConfig(session: IHTTPSession): RecommendationScoringConfig {
         val modeName = queryParam(session, "preference") ?: queryParam(session, "mode")
         val preset = scoringConfigSource.configFor(modeName)
@@ -468,7 +567,7 @@ class LocalApiServer(
         val payload = JSONObject()
         payload.put("status", "ok")
         payload.put("service", "mobilecore")
-        payload.put("version", "0.1.0")
+        payload.put("version", apiVersion)
         payload.put("model_loaded", backend.isModelLoaded())
         payload.put("active_model", backend.metrics().activeModel)
         payload.put("backend", info.id)

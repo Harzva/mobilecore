@@ -1,0 +1,82 @@
+[
+  {
+    "label": "airplane",
+    "embedding": [
+      0.9,
+      -0.2,
+      -0.3
+    ]
+  },
+  {
+    "label": "automobile",
+    "embedding": [
+      0.7,
+      -0.1,
+      0.2
+    ]
+  },
+  {
+    "label": "bird",
+    "embedding": [
+      0.2,
+      0.7,
+      -0.1
+    ]
+  },
+  {
+    "label": "cat",
+    "embedding": [
+      0.1,
+      0.8,
+      0.2
+    ]
+  },
+  {
+    "label": "deer",
+    "embedding": [
+      0.2,
+      0.6,
+      0.4
+    ]
+  },
+  {
+    "label": "dog",
+    "embedding": [
+      0.3,
+      0.7,
+      0.2
+    ]
+  },
+  {
+    "label": "frog",
+    "embedding": [
+      -0.2,
+      0.8,
+      0.4
+    ]
+  },
+  {
+    "label": "horse",
+    "embedding": [
+      0.5,
+      0.4,
+      -0.1
+    ]
+  },
+  {
+    "label": "ship",
+    "embedding": [
+      -1.0,
+      -0.2,
+      1.6
+    ]
+  },
+  {
+    "label": "truck",
+    "embedding": [
+      0.6,
+      -0.2,
+      0.5
+    ]
+  }
+]
