@@ -100,6 +100,10 @@ class LocalApiServer(
                 if (!hasAuth(session)) unauthorized() else okResponse(runVisionClassify(session))
             }
 
+            isVisionDiffusionRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(runVisionDiffusion(session))
+            }
+
             isModelLoadRoute(session) && method == Method.POST -> {
                 if (!hasAuth(session)) unauthorized() else onLoadModel(session)
             }
@@ -159,6 +163,10 @@ class LocalApiServer(
 
     private fun isVisionClassifyRoute(session: IHTTPSession): Boolean {
         return session.uri == "/vision/classify" || session.uri == "/v1/vision/classify"
+    }
+
+    private fun isVisionDiffusionRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/vision/diffusion" || session.uri == "/v1/vision/diffusion"
     }
 
     private fun isModelLoadRoute(session: IHTTPSession): Boolean {
@@ -446,6 +454,16 @@ class LocalApiServer(
         val imagePath = request.optString("image_path", "")
         val dataset = request.optString("dataset", "clip").ifBlank { "clip" }
         return visionRuntime.classify(imageName, imagePath, dataset).toString(2)
+    }
+
+    private fun runVisionDiffusion(session: IHTTPSession): String {
+        val request = JSONObject(parseBody(session))
+        val prompt = request.optString("prompt", "a small mobilecore smoke image")
+        val width = request.optInt("width", 512)
+        val height = request.optInt("height", 512)
+        val steps = request.optInt("steps", 4)
+        val seed = request.optLong("seed", 42L)
+        return visionRuntime.generateDiffusion(prompt, width, height, steps, seed).toString(2)
     }
 
     private fun scoringConfig(session: IHTTPSession): RecommendationScoringConfig {

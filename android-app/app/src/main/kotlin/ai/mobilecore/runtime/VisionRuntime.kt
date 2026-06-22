@@ -64,6 +64,9 @@ class VisionRuntime(private val modelManager: VisionModelManager) {
             put("clip_available", modelManager.hasTask("clip"))
             put("cifar10_available", modelManager.hasTask("cifar10"))
             put("mnist_available", modelManager.hasTask("mnist"))
+            put("diffusion_available", modelManager.hasTask("diffusion"))
+            put("diffusion_runtime_available", false)
+            put("diffusion_loadable", probes.any { it.model.task == "diffusion" && it.status == "loadable" })
             put(
                 "message",
                 if (hasMlKitOcr && hasLoadableModel) {
@@ -89,6 +92,68 @@ class VisionRuntime(private val modelManager: VisionModelManager) {
                     candidates().forEach { put(it.toJson()) }
                 }
             )
+        }
+    }
+
+    fun generateDiffusion(prompt: String, width: Int, height: Int, steps: Int, seed: Long): JSONObject {
+        val normalizedPrompt = prompt.trim().ifBlank { "a small mobilecore smoke image" }
+        val requestedWidth = width.takeIf { it > 0 }?.coerceIn(64, 1024) ?: 512
+        val requestedHeight = height.takeIf { it > 0 }?.coerceIn(64, 1024) ?: 512
+        val requestedSteps = steps.takeIf { it > 0 }?.coerceIn(1, 50) ?: 4
+        val model = modelManager.firstModelForTask("diffusion")
+            ?: return missingDiffusionModel(normalizedPrompt, requestedWidth, requestedHeight, requestedSteps, seed)
+        val probe = probeModel(model)
+        if (probe.status == "unsupported_backend") {
+            return JSONObject().apply {
+                put("object", "vision.diffusion")
+                put("status", "runtime_not_installed")
+                put("task", "diffusion")
+                put("prompt", normalizedPrompt)
+                put("width", requestedWidth)
+                put("height", requestedHeight)
+                put("steps", requestedSteps)
+                put("seed", seed)
+                put("backend", probe.backend)
+                put("model", probe.toJson())
+                put(
+                    "message",
+                    "Diffusion model files are present, but MNN-Diffusion or an ONNX diffusion pipeline is not integrated in this RC."
+                )
+                put("models", modelManager.toJson())
+            }
+        }
+        if (probe.status != "loadable") {
+            return JSONObject().apply {
+                put("object", "vision.diffusion")
+                put("status", "model_load_error")
+                put("task", "diffusion")
+                put("prompt", normalizedPrompt)
+                put("width", requestedWidth)
+                put("height", requestedHeight)
+                put("steps", requestedSteps)
+                put("seed", seed)
+                put("backend", probe.backend)
+                put("model", probe.toJson())
+                put("message", "Diffusion model file was found but failed backend load check: ${probe.reason}")
+                put("models", modelManager.toJson())
+            }
+        }
+        return JSONObject().apply {
+            put("object", "vision.diffusion")
+            put("status", "pipeline_not_implemented")
+            put("task", "diffusion")
+            put("prompt", normalizedPrompt)
+            put("width", requestedWidth)
+            put("height", requestedHeight)
+            put("steps", requestedSteps)
+            put("seed", seed)
+            put("backend", probe.backend)
+            put("model", probe.toJson())
+            put(
+                "message",
+                "The model backend loads, but text-to-image tokenization, scheduler, UNet loop, and VAE decode are not implemented in this RC."
+            )
+            put("models", modelManager.toJson())
         }
     }
 
@@ -962,6 +1027,24 @@ class VisionRuntime(private val modelManager: VisionModelManager) {
         }
     }
 
+    private fun missingDiffusionModel(prompt: String, width: Int, height: Int, steps: Int, seed: Long): JSONObject {
+        return JSONObject().apply {
+            put("object", "vision.diffusion")
+            put("status", "model_missing")
+            put("task", "diffusion")
+            put("prompt", prompt)
+            put("width", width)
+            put("height", height)
+            put("steps", steps)
+            put("seed", seed)
+            put(
+                "message",
+                "Add an MNN-Diffusion resource bundle or converted ONNX diffusion pipeline before running text-to-image generation."
+            )
+            put("models", modelManager.toJson())
+        }
+    }
+
     private fun modelLoadError(
         objectName: String,
         imageInfo: VisionImageInfo,
@@ -1021,6 +1104,13 @@ class VisionRuntime(private val modelManager: VisionModelManager) {
                 backend = "tflite",
                 status = "candidate",
                 reason = "Small CNN is a better MNIST demo than CLIP for handwritten digits."
+            ),
+            VisionModelCandidate(
+                id = "sd15-mnn-opencl",
+                task = "diffusion",
+                backend = "mnn-diffusion",
+                status = "blocked",
+                reason = "Stable Diffusion needs the MNN-Diffusion native pipeline and resource bundle; this RC exposes readiness only."
             )
         )
     }

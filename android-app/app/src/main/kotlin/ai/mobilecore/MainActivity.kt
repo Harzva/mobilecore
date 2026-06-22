@@ -1429,6 +1429,8 @@ class MainActivity : Activity() {
             addView(visionTaskRow("CIFAR10", "cifar10 TFLite 小 CNN", "cifar10", Palette.blue))
             addView(space(8))
             addView(visionTaskRow("MNIST", "mnist TFLite 小 CNN", "mnist", Palette.lavender))
+            addView(space(8))
+            addView(visionTaskRow("扩散", "MNN-Diffusion / SD1.5 资源包", "diffusion", Palette.sky))
             addView(space(10))
             addView(
                 softInfoBlock("可导入 .onnx / .ort / .tflite / .mnn，也可导入 CLIP 的 cifar10-text-embeddings.json。", Palette.sky, maxLines = 3)
@@ -1530,6 +1532,7 @@ class MainActivity : Activity() {
             addView(routeRow("POST", "/leaderboard/shared", "上传本机榜记录") { runSharedLeaderboardSync() })
             addView(routeRow("GET", "/vision/status", "视觉能力状态") { runVisionStatusProbe() })
             addView(routeRow("GET", "/vision/models", "已导入视觉模型") { runVisionModelsProbe() })
+            addView(routeRow("POST", "/vision/diffusion", "扩散生成 readiness") { runVisionDiffusionProbe() })
         }
     }
 
@@ -3025,6 +3028,36 @@ class MainActivity : Activity() {
                 }
                 updateStatus(if (count > 0) "已检测到视觉模型" else "未导入视觉模型")
                 Toast.makeText(this, if (count > 0) "已检测到 $count 个视觉模型" else "未导入视觉模型", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    private fun runVisionDiffusionProbe() {
+        ensureNotificationPermissionAndStartService()
+        callLocalApi(
+            path = "/vision/diffusion",
+            method = "POST",
+            body = JSONObject().apply {
+                put("prompt", "a small mobilecore smoke image")
+                put("width", 512)
+                put("height", 512)
+                put("steps", 4)
+                put("seed", 42)
+            }.toString(),
+            onResult = { status, body, _ ->
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                val diffusionStatus = json?.optString("status", "unknown") ?: "unknown"
+                val message = when (diffusionStatus) {
+                    "model_missing" -> "扩散模型缺失"
+                    "runtime_not_installed" -> "扩散 runtime 未接入"
+                    "pipeline_not_implemented" -> "扩散 pipeline 未实现"
+                    "model_load_error" -> "扩散模型加载失败"
+                    else -> "扩散状态：$diffusionStatus"
+                }
+                routeStatusText?.text = if (status in 200..299) message else "扩散 readiness 请求失败"
+                visionResultText?.text = json?.optString("message").orEmpty().ifBlank { message }
+                updateStatus(message)
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             }
         )
     }

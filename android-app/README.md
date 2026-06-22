@@ -133,6 +133,7 @@ Android app 已新增独立 `视觉` tab。当前 RC 支持通过系统文件选
 - MNIST TFLite 小模型已接入最小真实推理：要求输入张量总元素数为 `784`，输出总元素数为 `10`，支持 `FLOAT32` / `UINT8`。接口会把图片缩放成 `28x28` 灰度后返回 `status=ok`、`label`、`confidence` 和 10 类分数；形状不匹配时返回 `unsupported_model_shape`。
 - CIFAR10 TFLite 小模型已接入最小真实推理：要求 RGB 图像输入和 10 类输出，支持 `FLOAT32` / `UINT8` / `INT8`。接口会返回 CIFAR10 label、confidence 和分数列表。
 - CLIP zero-shot 路径要求 `.onnx` image encoder，并在同目录放置 `cifar10-text-embeddings.json` 这类 sidecar。sidecar 最小格式：
+- 扩散模型当前只暴露 readiness gate，不声称已完成图片生成。`/vision/diffusion` 会在缺少模型时返回 `model_missing`；导入 `.mnn` 后，如果没有 MNN-Diffusion native pipeline，会返回 `runtime_not_installed`；如果 ONNX backend 可加载但尚未实现 tokenizer / scheduler / UNet loop / VAE decode，会返回 `pipeline_not_implemented`。
 
 ```json
 [
@@ -164,6 +165,11 @@ curl -X POST -H "Authorization: Bearer local" \
   -H "Content-Type: application/json" \
   -d '{"image_name":"digit.png","image_path":"/data/user/0/com.mobilecore.app/files/vision/images/digit.png","dataset":"mnist"}' \
   "http://127.0.0.1:8080/vision/classify"
+
+curl -X POST -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"a small mobilecore smoke image","width":512,"height":512,"steps":4,"seed":42}' \
+  "http://127.0.0.1:8080/vision/diffusion"
 ```
 
 CLIP / CIFAR10 / MNIST 路线：
@@ -176,6 +182,8 @@ CLIP / CIFAR10 / MNIST 路线：
 - `sd15-mnn-opencl`：`MNN/stable-diffusion-v1-5-mnn-opencl`，约 1.1GB，优先用于 Android GPU/OpenCL 路线。
 - `sd15-mnn-gpu`：`MNN/stable-diffusion-v1-5-mnn-gpu`，约 1.1GB，用于和 OpenCL 包做设备兼容对比。
 - `sd15-mnn-cpu`：`MNN/stable-diffusion-v1-5-mnn`，约 2.2GB，主要作为正确性/CPU fallback baseline。
+
+这些 ModelScope 仓库是资源包形态，包含 `text_encoder.mnn`、`unet.mnn`、`vae_decoder.mnn`、权重文件、tokenizer/merges/vocab/alphas 等文件；它们不能像单个 GGUF 或单个分类 `.onnx` 一样直接导入后运行。真正跑通 Stable Diffusion 还需要接入 MNN-Diffusion native runtime、资源包下载/校验、生成输出目录和模拟器/真机耗时内存 QA。
 
 研究候选包括 `BK-SDM Tiny`、`LCM Dreamshaper int8/OpenVINO`、`Dreamshaper LCM ONNX` 和 `SD-Turbo`。这些不应进入 0.1.2 首发下载队列，除非先完成 Android 端转换、加载、内存和耗时验收。
 
