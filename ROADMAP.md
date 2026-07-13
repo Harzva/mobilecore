@@ -9,7 +9,9 @@
 - [x] Android API 35、APK/AAB、单测、lint 与 CI 候选产物链路。
 - [x] 自动设备验收脚本；模拟器 Quick 烟测已产生有效 v2 报告。
 - [ ] 代表性 Android 物理设备 Standard 验收：性能、温度、电量、内存、存储。
-- [ ] 配置长期上传签名密钥与商店账号，完成 Play Console 提交。
+- [x] 配置长期上传签名密钥、macOS Keychain 与 GitHub Actions Secrets。
+- [x] 准备并发布隐私政策、Play 文案、数据安全草案、图标、feature graphic 与手机截图。
+- [ ] 使用可用的 Play 开发者账号创建应用、完成声明并提交 AAB。
 - [ ] 生产共享排行榜后端与隐私/滥用防护。
 
 ## v0.1.0 - Local GGUF Inference Probe
