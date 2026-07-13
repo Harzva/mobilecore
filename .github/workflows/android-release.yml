@@ -1,0 +1,86 @@
+name: Android release candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-release.yml"
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "android-app/**"
+      - ".github/workflows/android-release.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tuima-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: android-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: |
+            android-app/*.gradle.kts
+            android-app/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Configure optional upload signing
+        env:
+          TUIMA_RELEASE_KEYSTORE_BASE64: ${{ secrets.TUIMA_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$TUIMA_RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$TUIMA_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/tuima-upload.jks"
+            echo "TUIMA_RELEASE_STORE_FILE=$RUNNER_TEMP/tuima-upload.jks" >> "$GITHUB_ENV"
+            echo "TUIMA_RELEASE_SIGNED=true" >> "$GITHUB_ENV"
+          else
+            echo "TUIMA_RELEASE_SIGNED=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Unit tests and lint
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
+
+      - name: Build APK and App Bundle
+        env:
+          TUIMA_RELEASE_STORE_PASSWORD: ${{ secrets.TUIMA_RELEASE_STORE_PASSWORD }}
+          TUIMA_RELEASE_KEY_ALIAS: ${{ secrets.TUIMA_RELEASE_KEY_ALIAS }}
+          TUIMA_RELEASE_KEY_PASSWORD: ${{ secrets.TUIMA_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ "$TUIMA_RELEASE_SIGNED" = true ] && [ -n "$TUIMA_RELEASE_STORE_PASSWORD" ] && [ -n "$TUIMA_RELEASE_KEY_ALIAS" ] && [ -n "$TUIMA_RELEASE_KEY_PASSWORD" ]; then
+            ./gradlew --no-daemon assembleRelease bundleRelease
+          else
+            ./gradlew --no-daemon assembleRelease bundleRelease -Pmobilecore.debugSignedRelease=true
+          fi
+
+      - name: Write checksums
+        run: |
+          mkdir -p ../artifacts
+          cp app/build/outputs/apk/release/app-release.apk ../artifacts/tuima-release.apk
+          cp app/build/outputs/bundle/release/app-release.aab ../artifacts/tuima-release.aab
+          cd ../artifacts
+          sha256sum tuima-release.apk tuima-release.aab > SHA256SUMS
+          printf 'upload_signed=%s\n' "$TUIMA_RELEASE_SIGNED" > build-metadata.txt
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuima-android-release-candidate
+          path: artifacts/
+          if-no-files-found: error

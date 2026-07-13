@@ -1,5 +1,17 @@
 # MobileCore Roadmap
 
+## 2026-07-14 RC2 当前状态
+
+- [x] 产品形态确认：TuiMa 独立 Android App 上架，MobileCore 作为本机运行时。
+- [x] 双层分数：0–1000 标准分与 0–1,000,000 TuiMa 展示分。
+- [x] 冻结 `tuima-llm-benchmark-v2`、标准提示词、Qwen2.5 0.5B Q4_K_M 与摘要校验。
+- [x] MobileCode 已真实接入 provider、状态探测、显式本地切换、SSE 与云端传输失败前置降级。
+- [x] Android API 35、APK/AAB、单测、lint 与 CI 候选产物链路。
+- [x] 自动设备验收脚本；模拟器 Quick 烟测已产生有效 v2 报告。
+- [ ] 代表性 Android 物理设备 Standard 验收：性能、温度、电量、内存、存储。
+- [ ] 配置长期上传签名密钥与商店账号，完成 Play Console 提交。
+- [ ] 生产共享排行榜后端与隐私/滥用防护。
+
 ## v0.1.0 - Local GGUF Inference Probe
 
 目标：验证 Android 手机上可以稳定运行 GGUF 本地模型。
@@ -17,7 +29,7 @@
 
 - [x] 实现 `/v1/models`。
 - [x] 实现 `/v1/chat/completions`。
-- [ ] 支持 SSE streaming。
+- [x] 支持 SSE streaming。
 - [x] 支持基础本地 Bearer token。
 - [x] 默认监听 `127.0.0.1`。
 - [x] 写入 MobileCode provider preset。
@@ -26,10 +38,10 @@
 
 目标：建立移动端本地 LLM 跑分能力。
 
-- [ ] quick / standard / coding / long-context profiles。
+- [x] quick / standard / stress profiles。
 - [x] 记录 load time、first token latency、decode tok/s。
 - [x] 记录内存峰值。
-- [ ] 记录温度、电量趋势。
+- [x] 记录温度、电量趋势。
 - [x] 输出 JSON metrics / recommendation response。
 - [x] 给出 perfect / usable / risky 等级。
 
@@ -49,11 +61,11 @@
 
 目标：让 MobileCode 与 MobileCore 形成 Mobile AI Stack 闭环。
 
-- [ ] MobileCode provider preset。
-- [ ] MobileCore 服务状态检测。
+- [x] MobileCode provider preset。
+- [x] MobileCore 服务状态检测。
 - [ ] 一键复制 API 配置。
-- [ ] 本地/云端模型切换策略。
-- [ ] 离线模式降级策略。
+- [x] 本地/云端模型切换策略。
+- [x] 离线模式降级策略。
 - [ ] MobileCode 中显示 MobileCore benchmark 结果。
 
 ## v1.0.0 - Public Stable Release

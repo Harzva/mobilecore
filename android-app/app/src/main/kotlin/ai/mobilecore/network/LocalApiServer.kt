@@ -1,5 +1,6 @@
 package ai.mobilecore.network
 
+import ai.mobilecore.benchmark.BenchmarkReportStore
 import ai.mobilecore.runtime.BackendInfo
 import ai.mobilecore.runtime.BenchmarkLeaderboardStore
 import ai.mobilecore.runtime.ChatMessage
@@ -19,6 +20,7 @@ import ai.mobilecore.runtime.SharedLeaderboardConfigSource
 import ai.mobilecore.runtime.VisionModelManager
 import ai.mobilecore.runtime.VisionRuntime
 import android.content.Context
+import android.util.Log
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.ResponseException
 import org.json.JSONArray
@@ -34,11 +36,13 @@ class LocalApiServer(
     host: String = "127.0.0.1",
     port: Int = 8080
 ) : NanoHTTPD(host, port) {
-    private val apiVersion = "0.1.2-rc1"
+    private val logTag = "MobileCoreApi"
+    private val apiVersion = "0.1.3-rc2"
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
     private val benchmarkStore = ModelBenchmarkStore(context.applicationContext)
     private val leaderboardStore = BenchmarkLeaderboardStore(context.applicationContext)
+    private val benchmarkReportStore = BenchmarkReportStore(context.applicationContext)
     private val sharedLeaderboardConfigSource = SharedLeaderboardConfigSource(context.applicationContext)
     private val visionModelManager = VisionModelManager(context.applicationContext)
     private val visionRuntime = VisionRuntime(visionModelManager)
@@ -66,6 +70,14 @@ class LocalApiServer(
 
             isMetricsRoute(session) && method == Method.GET -> {
                 if (!hasAuth(session)) unauthorized() else okResponse(buildMetrics(backend.metrics()))
+            }
+
+            isBenchmarkLatestRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else buildLatestBenchmarkReport()
+            }
+
+            isBenchmarkReportsRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(buildBenchmarkReports(session))
             }
 
             isRecommendationRoute(session) && method == Method.GET -> {
@@ -137,6 +149,14 @@ class LocalApiServer(
         return session.uri == "/metrics"
     }
 
+    private fun isBenchmarkLatestRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/v1/benchmark/latest"
+    }
+
+    private fun isBenchmarkReportsRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/v1/benchmark/reports"
+    }
+
     private fun isRecommendationRoute(session: IHTTPSession): Boolean {
         return session.uri == "/v1/recommendations"
     }
@@ -204,10 +224,44 @@ class LocalApiServer(
             val created = System.currentTimeMillis() / 1000
             val signaturePayload = benchmarkSignaturePayload(model, result, created)
             val benchmarkSignature = sha256Hex("$signaturePayload|$apiKey")
+            val mobileCoreMetadata = JSONObject().apply {
+                put("backend", "llama.cpp")
+                put("prompt_eval_ms", result.promptEvalMs)
+                put("decode_tokens_per_second", result.decodeTokensPerSecond)
+                put("first_token_ms", result.firstTokenMs)
+                put("decode_ms", result.decodeMs)
+                put("total_ms", result.totalMs)
+                put("memory_peak_mb", result.memoryPeakMb)
+                put("signature_algorithm", "sha256")
+                put("signature_payload", signaturePayload)
+                put("benchmark_signature", benchmarkSignature)
+            }
+            val responseId = "chatcmpl-local-${System.currentTimeMillis()}"
 
-            okResponse(
-                JSONObject().apply {
-                    put("id", "chatcmpl-local-0001")
+            if (options.stream) {
+                val streamBody = OpenAiSseEncoder.encode(
+                    id = responseId,
+                    created = created,
+                    model = model,
+                    content = result.message,
+                    finishReason = result.finishReason,
+                    promptTokens = result.promptTokens,
+                    completionTokens = result.completionTokens,
+                    totalTokens = result.totalTokens,
+                    mobileCoreMetadata = mobileCoreMetadata
+                )
+                newChunkedResponse(
+                    Response.Status.OK,
+                    "text/event-stream; charset=utf-8",
+                    streamBody.byteInputStream(Charsets.UTF_8)
+                ).apply {
+                    addHeader("Cache-Control", "no-cache")
+                    addHeader("Connection", "keep-alive")
+                    addHeader("X-Accel-Buffering", "no")
+                }
+            } else {
+                okResponse(JSONObject().apply {
+                    put("id", responseId)
                     put("object", "chat.completion")
                     put("created", created)
                     put("model", model)
@@ -234,24 +288,11 @@ class LocalApiServer(
                             put("total_tokens", result.totalTokens)
                         }
                     )
-                    put(
-                        "mobilecore",
-                        JSONObject().apply {
-                            put("backend", "llama.cpp")
-                            put("prompt_eval_ms", result.promptEvalMs)
-                            put("decode_tokens_per_second", result.decodeTokensPerSecond)
-                            put("first_token_ms", result.firstTokenMs)
-                            put("decode_ms", result.decodeMs)
-                            put("total_ms", result.totalMs)
-                            put("memory_peak_mb", result.memoryPeakMb)
-                            put("signature_algorithm", "sha256")
-                            put("signature_payload", signaturePayload)
-                            put("benchmark_signature", benchmarkSignature)
-                        }
-                    )
-                }.toString(2)
-            )
+                    put("mobilecore", mobileCoreMetadata)
+                }.toString(2))
+            }
         } catch (e: Exception) {
+            Log.e(logTag, "Chat request failed", e)
             badRequest(e.message ?: "invalid request")
         }
     }
@@ -365,6 +406,20 @@ class LocalApiServer(
         payload.put("last_total_tokens", metrics.totalTokens)
         payload.put("memory_peak_mb", metrics.memoryPeakMb)
         return payload.toString(2)
+    }
+
+    private fun buildLatestBenchmarkReport(): Response {
+        val latest = benchmarkReportStore.latest() ?: return newFixedLengthResponse(
+            Response.Status.NOT_FOUND,
+            "application/json",
+            JSONObject(mapOf("error" to mapOf("message" to "no benchmark report"))).toString()
+        )
+        return okResponse(latest.toString(2))
+    }
+
+    private fun buildBenchmarkReports(session: IHTTPSession): String {
+        val limit = queryParam(session, "limit")?.toIntOrNull()?.coerceIn(1, 50) ?: 10
+        return benchmarkReportStore.toJson(limit).toString(2)
     }
 
     private fun buildRecommendations(session: IHTTPSession): String {

@@ -14,9 +14,9 @@ object RuntimeBridge {
 
     fun isLibraryReady(): Boolean = libraryReady
 
-    fun loadModel(modelPath: String, contextLength: Int): String =
+    fun loadModel(modelPath: String, contextLength: Int, threads: Int): String =
         callNative(defaultValue = "{\"ok\":false,\"message\":\"native library unavailable\"}") {
-            nativeLoadModel(modelPath, contextLength)
+            nativeLoadModel(modelPath, contextLength, threads)
         }
 
     fun chat(modelId: String, prompt: String, maxTokens: Int, temperature: Float): String =
@@ -35,6 +35,15 @@ object RuntimeBridge {
         }
     }
 
+    fun cancel(): Boolean = if (libraryReady) {
+        runCatching {
+            nativeCancel()
+            true
+        }.getOrDefault(false)
+    } else {
+        false
+    }
+
     fun info(): String =
         callNative(defaultValue = "{\"backend\":\"stub\",\"status\":\"unavailable\"}") {
             nativeBackendInfo()
@@ -51,8 +60,9 @@ object RuntimeBridge {
         }
     }
 
-    private external fun nativeLoadModel(modelPath: String, contextLength: Int): String
+    private external fun nativeLoadModel(modelPath: String, contextLength: Int, threads: Int): String
     private external fun nativeChat(modelId: String, prompt: String, maxTokens: Int, temperature: Float): String
+    private external fun nativeCancel()
     private external fun nativeUnload()
     private external fun nativeBackendInfo(): String
 }

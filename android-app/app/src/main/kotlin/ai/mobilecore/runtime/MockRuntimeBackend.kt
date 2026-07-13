@@ -36,7 +36,9 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend {
 
     override fun loadModel(modelPath: String, options: LoadOptions): LoadResult {
         val start = SystemClock.elapsedRealtime()
-        val nativeResult = JSONObject(RuntimeBridge.loadModel(modelPath, options.contextLength))
+        val nativeResult = JSONObject(
+            RuntimeBridge.loadModel(modelPath, options.contextLength, options.threads)
+        )
         val candidateModel = nativeResult.optString(
             "modelId",
             modelPath.substringAfterLast('/')

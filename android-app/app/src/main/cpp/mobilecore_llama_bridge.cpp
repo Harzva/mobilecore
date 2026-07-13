@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <sstream>
@@ -22,6 +23,7 @@ double g_last_decode_tokens_per_second = 0.0;
 int32_t g_last_prompt_tokens = 0;
 int32_t g_last_completion_tokens = 0;
 long long g_last_memory_mb = 0;
+std::atomic<bool> g_cancel_requested{false};
 
 #ifdef MOBILECORE_USE_LLAMA_CPP
 bool g_backend_initialized = false;
@@ -168,7 +170,13 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeBackendInfo(JNIEnv* env, jobject 
 }
 
 JNIEXPORT jstring JNICALL
-Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(JNIEnv* env, jobject /* this */, jstring modelPath, jint contextLength) {
+Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring modelPath,
+    jint contextLength,
+    jint threads
+) {
     const char* model_path_utf = env->GetStringUTFChars(modelPath, nullptr);
     g_model_path = model_path_utf == nullptr ? "" : model_path_utf;
     if (model_path_utf != nullptr) {
@@ -213,8 +221,9 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(JNIEnv* env, jobject /*
     ctx_params.n_ctx = n_ctx;
     ctx_params.n_batch = n_ctx;
     ctx_params.n_ubatch = std::min<uint32_t>(n_ctx, 512);
-    ctx_params.n_threads = 4;
-    ctx_params.n_threads_batch = 4;
+    const int32_t requested_threads = std::max(1, static_cast<int32_t>(threads));
+    ctx_params.n_threads = requested_threads;
+    ctx_params.n_threads_batch = requested_threads;
     g_context = llama_init_from_model(g_model, ctx_params);
     if (g_context == nullptr) {
         llama_model_free(g_model);
@@ -238,6 +247,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(JNIEnv* env, jobject /*
          << "\"ok\":true,"
          << "\"modelId\":\"" << escape_json(g_model_id) << "\","
          << "\"contextLength\":" << contextLength << ","
+         << "\"threads\":" << requested_threads << ","
          << "\"memoryUsedMb\":" << g_last_memory_mb << ","
          << "\"backend\":\"llama.cpp\","
          << "\"message\":\"llama.cpp model and context loaded\""
@@ -250,6 +260,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(JNIEnv* env, jobject /*
          << "\"ok\":true,"
          << "\"modelId\":\"" << escape_json(g_model_id) << "\","
          << "\"contextLength\":" << contextLength << ","
+         << "\"threads\":" << std::max(1, static_cast<int32_t>(threads)) << ","
          << "\"memoryUsedMb\":120,"
          << "\"backend\":\"llama.cpp-native-stub\","
          << "\"message\":\"model state loaded in JNI stub; real llama.cpp context is not linked yet\""
@@ -267,6 +278,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
     jint maxTokens,
     jfloat temperature
 ) {
+    g_cancel_requested.store(false, std::memory_order_release);
     const char* modelIdUtf = env->GetStringUTFChars(modelId, nullptr);
     const char* promptUtf = env->GetStringUTFChars(prompt, nullptr);
 
@@ -350,7 +362,12 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         const auto decode_start = std::chrono::steady_clock::now();
         long long first_token_ms = 0;
 
+        bool cancelled = false;
         while (n_decode < capped_max_tokens) {
+            if (g_cancel_requested.load(std::memory_order_acquire)) {
+                cancelled = true;
+                break;
+            }
             llama_token token = llama_sampler_sample(sampler, g_context, -1);
             if (llama_vocab_is_eog(vocab, token)) {
                 break;
@@ -373,6 +390,10 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
                 break;
             }
 
+            if (g_cancel_requested.load(std::memory_order_acquire)) {
+                cancelled = true;
+                break;
+            }
             if (llama_decode(g_context, batch) != 0) {
                 llama_sampler_free(sampler);
                 const std::string json = chat_json(false, requested_model, "llama.cpp error: token decode failed", n_prompt, n_decode, prompt_eval_ms, first_token_ms, 0, 0, 0.0, g_last_memory_mb);
@@ -383,7 +404,9 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         const auto decode_end = std::chrono::steady_clock::now();
         llama_sampler_free(sampler);
 
-        if (generated.empty()) {
+        if (cancelled) {
+            generated = "cancelled";
+        } else if (generated.empty()) {
             generated = "llama.cpp generated an empty response";
         }
 
@@ -406,7 +429,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         g_last_memory_mb = memory_mb;
 
         const std::string json = chat_json(
-            true,
+            !cancelled,
             requested_model,
             generated,
             n_prompt,
@@ -445,6 +468,11 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         g_last_memory_mb
     );
     return env->NewStringUTF(json.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_ai_mobilecore_runtime_RuntimeBridge_nativeCancel(JNIEnv* /* env */, jobject /* this */) {
+    g_cancel_requested.store(true, std::memory_order_release);
 }
 
 JNIEXPORT void JNICALL

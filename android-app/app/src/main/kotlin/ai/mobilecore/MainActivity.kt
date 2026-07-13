@@ -1,11 +1,29 @@
 package ai.mobilecore
 
+import ai.mobilecore.benchmark.AndroidBenchmarkTelemetry
+import ai.mobilecore.benchmark.BenchmarkAggregator
+import ai.mobilecore.benchmark.BenchmarkDeviceIdentity
+import ai.mobilecore.benchmark.BenchmarkDigestVerifier
+import ai.mobilecore.benchmark.BenchmarkFailureKind
+import ai.mobilecore.benchmark.BenchmarkManifestRepository
+import ai.mobilecore.benchmark.BenchmarkPreflight
+import ai.mobilecore.benchmark.BenchmarkPreflightReason
+import ai.mobilecore.benchmark.BenchmarkPreflightResult
+import ai.mobilecore.benchmark.BenchmarkPreflightSnapshot
+import ai.mobilecore.benchmark.BenchmarkProfile
+import ai.mobilecore.benchmark.BenchmarkReport
+import ai.mobilecore.benchmark.BenchmarkReportStore
+import ai.mobilecore.benchmark.BenchmarkRunSample
+import ai.mobilecore.benchmark.BenchmarkScoreEngine
+import ai.mobilecore.benchmark.BenchmarkSpecV2
+import ai.mobilecore.benchmark.ThermalStatus
 import ai.mobilecore.runtime.BenchmarkResult
 import ai.mobilecore.runtime.BenchmarkScorer
 import ai.mobilecore.runtime.BenchmarkSpec
 import ai.mobilecore.runtime.BenchmarkLeaderboardStore
 import ai.mobilecore.runtime.BenchmarkLeaderboardEntry
 import ai.mobilecore.runtime.GgufMetadataReader
+import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.service.MobileCoreService
 import android.Manifest
 import android.app.Activity
@@ -55,12 +73,21 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 private const val PREF_RECOMMENDATION_MODE = "recommendation_preference"
+private const val BYTES_PER_MB = 1024L * 1024L
+
+private class BenchmarkRunException(
+    val kind: BenchmarkFailureKind,
+    message: String,
+    cause: Throwable? = null
+) : IOException(message, cause)
 
 class MainActivity : Activity() {
 
@@ -94,6 +121,7 @@ class MainActivity : Activity() {
     private var selectedVisionImagePath: String? = null
     private var benchmarkLeaderboardContainer: LinearLayout? = null
     private var isTestRunning = false
+    @Volatile private var benchmarkCancellationRequested = false
     private var recommendationPreference = RecommendationPreference.STABILITY
     private val serviceHost = "127.0.0.1"
     private val servicePort = 8080
@@ -140,12 +168,14 @@ class MainActivity : Activity() {
         ),
         ModelHubItem(
             provider = "ModelScope",
-            shortName = "Qwen2.5 0.5B Q4",
-            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-            url = "https://modelscope.cn/models/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/master/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+            shortName = "Gemma3 270M Q4",
+            fileName = "gemma-3-270m-it-Q4_K_M.gguf",
+            url = "https://modelscope.cn/models/unsloth/gemma-3-270m-it-GGUF/resolve/master/gemma-3-270m-it-Q4_K_M.gguf"
         )
     )
     private val modelScopeSeeds = listOf(
+        ModelScopeRepoSeed("unsloth", "gemma-3-270m-it-GGUF", "Gemma3 270M"),
+        ModelScopeRepoSeed("unsloth", "gemma-3-1b-it-GGUF", "Gemma3 1B"),
         ModelScopeRepoSeed("Qwen", "Qwen2.5-0.5B-Instruct-GGUF", "Qwen2.5 0.5B"),
         ModelScopeRepoSeed("unsloth", "Qwen3-0.6B-GGUF", "Qwen3 0.6B"),
         ModelScopeRepoSeed("Qwen", "Qwen2.5-1.5B-Instruct-GGUF", "Qwen2.5 1.5B")
@@ -259,7 +289,7 @@ class MainActivity : Activity() {
         content.addView(space(12))
         content.addView(buildStorageCard())
         content.addView(space(12))
-        content.addView(sectionTitle("10 个精选模型", "结合本机配置推荐下载"))
+        content.addView(sectionTitle("${featuredModelScopeCatalog().size} 个精选模型", "结合本机配置推荐下载"))
         content.addView(buildFeaturedModelScopeCard())
         content.addView(space(12))
         content.addView(sectionTitle("ModelScope", "模型列表 / 搜索 / GGUF"))
@@ -277,13 +307,13 @@ class MainActivity : Activity() {
     private fun renderTestTab(content: LinearLayout) {
         content.addView(buildHeader())
         content.addView(space(12))
-        content.addView(sectionTitle("本机检测", "模型回复与速度"))
+        content.addView(sectionTitle("TuiMa AI 跑分", "本地大模型五维基准"))
         content.addView(buildTestChatCard())
         content.addView(space(18))
         content.addView(sectionTitle("检测结果", "上次运行"))
         content.addView(buildMetricStrip())
         content.addView(space(18))
-        content.addView(sectionTitle("本机排行榜", "标准跑分 v1"))
+        content.addView(sectionTitle("历史跑分", "v2 报告 + v1 兼容榜"))
         content.addView(buildLocalLeaderboardCard())
         content.addView(space(18))
         content.addView(sectionTitle("设备状态", "CPU / 内存 / 引擎"))
@@ -812,6 +842,32 @@ class MainActivity : Activity() {
         fun mb(value: Long) = value * 1024L * 1024L
         return listOf(
             ModelScopeCatalogEntry(
+                repoId = "unsloth/gemma-3-270m-it-GGUF",
+                displayTitle = "Gemma3 270M Instruct",
+                fileName = "gemma-3-270m-it-Q4_K_M.gguf",
+                filePath = "gemma-3-270m-it-Q4_K_M.gguf",
+                sizeBytes = 253115424L,
+                quantization = "Q4_K_M",
+                parameterLabel = "270M",
+                architecture = "gemma3",
+                downloads = 0L,
+                recommendationReason = "Gemma3 超轻文本入口，适合先验证加载和对话链路。",
+                tier = "tiny"
+            ),
+            ModelScopeCatalogEntry(
+                repoId = "unsloth/gemma-3-1b-it-GGUF",
+                displayTitle = "Gemma3 1B Instruct",
+                fileName = "gemma-3-1b-it-Q4_K_M.gguf",
+                filePath = "gemma-3-1b-it-Q4_K_M.gguf",
+                sizeBytes = 806058272L,
+                quantization = "Q4_K_M",
+                parameterLabel = "1B",
+                architecture = "gemma3",
+                downloads = 0L,
+                recommendationReason = "Gemma3 手机质量基线，Q4 量化更稳。",
+                tier = "phone"
+            ),
+            ModelScopeCatalogEntry(
                 repoId = "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
                 displayTitle = "Qwen2.5 0.5B Instruct",
                 fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -1122,6 +1178,19 @@ class MainActivity : Activity() {
     private fun fallbackModelScopeCatalog(): List<ModelScopeCatalogEntry> {
         return listOf(
             ModelScopeCatalogEntry(
+                repoId = "unsloth/gemma-3-270m-it-GGUF",
+                displayTitle = "Gemma3-270M-Instruct-GGUF",
+                fileName = "gemma-3-270m-it-Q4_K_M.gguf",
+                filePath = "gemma-3-270m-it-Q4_K_M.gguf",
+                sizeBytes = 253115424L,
+                quantization = "Q4_K_M",
+                parameterLabel = "270M",
+                architecture = "gemma3",
+                downloads = 0L,
+                recommendationReason = "Gemma3 超轻文本入口，适合先验证加载和对话链路。",
+                tier = "tiny"
+            ),
+            ModelScopeCatalogEntry(
                 repoId = "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
                 displayTitle = "千问2.5-0.5B-Instruct-GGUF",
                 fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -1191,6 +1260,7 @@ class MainActivity : Activity() {
 
     private fun inferArchitecture(repoId: String): String {
         return when {
+            repoId.contains("gemma", ignoreCase = true) -> "gemma3"
             repoId.contains("qwen3", ignoreCase = true) -> "qwen3"
             repoId.contains("qwen", ignoreCase = true) -> "qwen2"
             repoId.contains("llama", ignoreCase = true) -> "llama"
@@ -1287,51 +1357,69 @@ class MainActivity : Activity() {
 
     private fun buildTestChatCard(): View {
         return surfaceCard(Palette.lavender, gradient = true) {
-            addView(cardHeader("本机推理检测", "自动准备模型、试聊并记录速度", "play", Palette.lavender, "Smoke"))
+            addView(cardHeader("TuiMa 本机 AI 跑分", "冻结模型与提示词 · 0–1000 标准分", "play", Palette.lavender, "RC2"))
             addView(space(12))
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(
-                        miniMetricCard("Load", "模型", "GGUF", "cube", Palette.mint, compact = true),
+                        miniMetricCard("350", "推理", "tok/s", "cube", Palette.mint, compact = true),
                         LinearLayout.LayoutParams(0, dp(96), 1f).apply { marginEnd = dp(6) }
                     )
                     addView(
-                        miniMetricCard("Chat", "回复", "48 tok", "play", Palette.sky, compact = true),
+                        miniMetricCard("150", "响应", "TTFT", "play", Palette.sky, compact = true),
                         LinearLayout.LayoutParams(0, dp(96), 1f).apply { marginStart = dp(6); marginEnd = dp(6) }
                     )
                     addView(
-                        miniMetricCard("Metrics", "速度", "tok/s", "gauge", Palette.lavender, compact = true),
+                        miniMetricCard("500", "持续/内存/稳定", "五维", "gauge", Palette.lavender, compact = true),
                         LinearLayout.LayoutParams(0, dp(96), 1f).apply { marginStart = dp(6) }
                     )
                 }
             )
             addView(space(12))
             addView(
-                roundedTextBlock("测试句：MobileCore 在手机上运行 GGUF。"),
+                roundedTextBlock("标准模型：Qwen2.5 0.5B Q4_K_M · 双层分数"),
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
             )
             addView(space(12))
-            testResultText = softInfoBlock("点击开始检测，完成后会显示回复、速度和内存。", Palette.sky, maxLines = 5)
+            val latest = BenchmarkReportStore(applicationContext).latest()
+            val latestScore = latest?.optJSONObject("score")
+            val initialResult = if (latestScore != null) {
+                "上次：${latestScore.optInt("headline")} TuiMa · 标准分 ${latestScore.optInt("canonical")}/1000"
+            } else {
+                "选择快速、标准或压力模式。标准模式可进入官方榜。"
+            }
+            testResultText = softInfoBlock(initialResult, Palette.sky, maxLines = 6)
             addView(testResultText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(space(8))
-            testMetricsText = label("速度 -- · 首字 -- · 总耗时 --", 11.5f, Palette.muted, Typeface.BOLD)
+            testMetricsText = label("推理 -- · 响应 -- · 内存 -- · 持续 -- · 稳定 --", 11.5f, Palette.muted, Typeface.BOLD)
             addView(testMetricsText)
             addView(space(12))
-            addView(
-                pillButton("开始检测", Palette.mintDark, Palette.mint) { runSmokeTest() },
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50))
-            )
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(
+                    pillButton("快速", Palette.blue, Palette.sky) { runBenchmark(BenchmarkProfile.QUICK) },
+                    LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) }
+                )
+                addView(
+                    pillButton("标准", Palette.mintDark, Palette.mint) { runBenchmark(BenchmarkProfile.STANDARD) },
+                    LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                )
+                addView(
+                    pillButton("压力", Palette.ink, Palette.lavender) { runBenchmark(BenchmarkProfile.STRESS) },
+                    LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(6) }
+                )
+            })
             addView(space(8))
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
                     addView(
-                        pillButton("启动服务", Palette.sky, Palette.blue) { ensureNotificationPermissionAndStartService() },
+                        pillButton("取消跑分", Palette.ink, Palette.lavender) { cancelBenchmark() },
                         LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
                     )
                     addView(
-                        pillButton("试聊", Palette.mintDark, Palette.mint) { runTestChat() },
+                        pillButton("启动服务", Palette.sky, Palette.blue) { ensureNotificationPermissionAndStartService() },
                         LinearLayout.LayoutParams(0, dp(48), 1f)
                     )
                 }
@@ -1524,6 +1612,11 @@ class MainActivity : Activity() {
             addView(routeRow("GET", "/v1/models", "查看本地 GGUF 模型") { runModelsProbe() })
             addView(routeRow("POST", "/v1/chat/completions", "发送一条本机回复") { runTestChat() })
             addView(routeRow("GET", "/metrics", "速度、首字、内存") { runMetricsProbe() })
+            addView(routeRow("GET", "/v1/benchmark/latest", "最新 TuiMa v2 报告") {
+                callLocalApi("/v1/benchmark/latest", "GET", null, onResult = { status, body, _ ->
+                    routeStatusText?.text = if (status in 200..299) body.take(500) else "暂无 v2 跑分报告"
+                })
+            })
             addView(routeRow("GET", "/v1/recommendations", "按设备能力推荐") {
                 setTab(AppTab.HOME)
             })
@@ -3121,37 +3214,71 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun runSmokeTest() {
+    private fun runSmokeTest() = runBenchmark(BenchmarkProfile.STANDARD)
+
+    private fun runBenchmark(profile: BenchmarkProfile) {
         if (isTestRunning) {
-            Toast.makeText(this, "检测正在运行", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "TuiMa 跑分正在运行", Toast.LENGTH_SHORT).show()
             return
         }
-        val model = findPreferredGguf()
+
+        val manifestRepository = BenchmarkManifestRepository(applicationContext)
+        val manifest = runCatching { manifestRepository.load() }.getOrElse {
+            testResultText?.text = "跑分清单校验失败，当前构建不可计分。"
+            return
+        }
+        val model = availableGgufModels().firstOrNull { it.name == manifest.model.fileName }
         if (model == null) {
-            testResultText?.text = "未找到 GGUF 模型。请先在模型页下载或导入模型。"
+            testResultText?.text = "缺少标准模型 ${manifest.model.fileName}。请先在模型页下载。"
             testMetricsText?.text = "速度 -- · 首字 -- · 总耗时 --"
-            updateStatus("未找到 GGUF 模型")
+            updateStatus("缺少 TuiMa 标准模型")
             return
         }
 
         withNotificationPermission {
             isTestRunning = true
-            testResultText?.text = "准备本机服务..."
-            testMetricsText?.text = "速度 -- · 首字 -- · 总耗时 --"
+            benchmarkCancellationRequested = false
+            testResultText?.text = "${benchmarkProfileName(profile)} · 正在校验模型和设备状态..."
+            testMetricsText?.text = "推理 -- · 响应 -- · 内存 -- · 持续 -- · 稳定 --"
             val deviceProfile = probeDeviceProfile()
-            val spec = BenchmarkSpec.v1(threads = deviceProfile.coreCount.coerceAtMost(6))
+            val spec = BenchmarkSpecV2.forProfile(profile, threads = deviceProfile.coreCount.coerceAtMost(6))
             startServiceInForeground()
 
             Thread {
                 try {
                     updateTestStatus("正在检查本机服务...")
-                    localApiRequestBlocking(
+                    val health = localApiRequestBlocking(
                         path = "/health",
                         method = "GET",
                         body = null,
                         retryCount = 8,
                         readTimeoutMs = 2500
                     )
+
+                    val prompt = manifestRepository.loadPrompt(manifest).trimEnd()
+                    val telemetry = AndroidBenchmarkTelemetry(applicationContext)
+                    val initialTelemetry = telemetry.sample()
+                    val modelHashMatches = BenchmarkDigestVerifier.matches(model, manifest.model.sha256)
+                    val preflight = BenchmarkPreflight.evaluate(
+                        BenchmarkPreflightSnapshot(
+                            batteryPercent = initialTelemetry.batteryPercent,
+                            charging = initialTelemetry.charging,
+                            thermalStatus = initialTelemetry.thermalStatus,
+                            freeStorageMb = initialTelemetry.freeStorageMb,
+                            modelSizeMb = (model.length() + BYTES_PER_MB - 1L) / BYTES_PER_MB,
+                            modelHashMatches = modelHashMatches,
+                            promptHashMatches = true,
+                            apiHealthy = health.status in 200..299 &&
+                                runCatching { JSONObject(health.body).optString("status") == "ok" }.getOrDefault(false),
+                            benchmarkRunning = false
+                        )
+                    )
+                    if (preflight is BenchmarkPreflightResult.Blocked) {
+                        throw BenchmarkRunException(
+                            BenchmarkFailureKind.PREFLIGHT_BLOCKED,
+                            "跑分门禁：${preflight.reasons.joinToString("、", transform = ::preflightReasonLabel)}"
+                        )
+                    }
 
                     updateTestStatus("正在加载模型 ${model.name}...")
                     val loadBody = JSONObject().apply {
@@ -3165,123 +3292,241 @@ class MainActivity : Activity() {
                         method = "POST",
                         body = loadBody,
                         retryCount = 2,
-                        readTimeoutMs = 15000
+                        readTimeoutMs = 120000
                     )
                     if (loadResult.status !in 200..299) {
-                        throw IOException("load failed ${loadResult.status}: ${loadResult.body.take(180)}")
+                        throw BenchmarkRunException(
+                            BenchmarkFailureKind.MODEL_INVALID,
+                            "模型加载失败 ${loadResult.status}: ${loadResult.body.take(180)}"
+                        )
                     }
                     val loadJson = JSONObject(loadResult.body)
+                    if (!loadJson.optBoolean("ok", false)) {
+                        throw BenchmarkRunException(BenchmarkFailureKind.MODEL_INVALID, "标准模型加载失败")
+                    }
                     activeModelPath = model.absolutePath
+                    val loadMs = loadJson.optLong("load_time_ms", loadResult.elapsedMs)
 
-                    updateTestStatus("正在生成测试回复...")
                     val chatBody = JSONObject().apply {
                         put("model", model.nameWithoutExtension)
-                        put("max_tokens", spec.maxTokens)
+                        put("max_tokens", spec.profile.outputTokens)
                         put("temperature", spec.temperature.toDouble())
                         put(
                             "messages",
                             JSONArray().apply {
                                 put(JSONObject().apply {
                                     put("role", "user")
-                                    put("content", spec.prompt)
+                                    put("content", prompt)
                                 })
                             }
                         )
                     }.toString()
-                    val chatResult = localApiRequestBlocking(
-                        path = "/v1/chat/completions",
-                        method = "POST",
-                        body = chatBody,
-                        retryCount = 1,
-                        readTimeoutMs = 45000
-                    )
-                    if (chatResult.status !in 200..299) {
-                        throw IOException("chat failed ${chatResult.status}: ${chatResult.body.take(180)}")
-                    }
-                    val chatJson = JSONObject(chatResult.body)
-                    val answer = chatJson
-                        .optJSONArray("choices")
-                        ?.optJSONObject(0)
-                        ?.optJSONObject("message")
-                        ?.optString("content")
-                        ?.takeIf { it.isNotBlank() }
-                        ?: chatResult.body.take(220)
-                    val mobilecore = chatJson.optJSONObject("mobilecore") ?: JSONObject()
 
-                    updateTestStatus("正在读取速度和内存...")
-                    val metricsResult = localApiRequestBlocking(
-                        path = "/metrics",
-                        method = "GET",
-                        body = null,
-                        retryCount = 2,
-                        readTimeoutMs = 4000
-                    )
-                    if (metricsResult.status !in 200..299) {
-                        throw IOException("metrics failed ${metricsResult.status}: ${metricsResult.body.take(180)}")
+                    repeat(spec.profile.warmupRuns) { index ->
+                        throwIfBenchmarkCancelled()
+                        updateTestStatus("${benchmarkProfileName(profile)} · 预热 ${index + 1}/${spec.profile.warmupRuns}")
+                        executeBenchmarkChat(chatBody, spec.timeoutMs)
+                        throwIfBenchmarkCancelled()
                     }
-                    val metricsJson = JSONObject(metricsResult.body)
-                    val tps = metricsJson.optDouble(
-                        "last_decode_tokens_per_second",
-                        mobilecore.optDouble("decode_tokens_per_second", 0.0)
+
+                    val samples = ArrayList<BenchmarkRunSample>(spec.profile.measuredRuns)
+                    var lastAnswer = ""
+                    repeat(spec.profile.measuredRuns) { index ->
+                        throwIfBenchmarkCancelled()
+                        updateTestStatus("${benchmarkProfileName(profile)} · 计分 ${index + 1}/${spec.profile.measuredRuns}")
+                        val before = telemetry.sample()
+                        val chat = executeBenchmarkChat(chatBody, spec.timeoutMs)
+                        throwIfBenchmarkCancelled()
+                        val after = telemetry.sample()
+                        val usage = chat.optJSONObject("usage") ?: JSONObject()
+                        val metrics = chat.optJSONObject("mobilecore") ?: JSONObject()
+                        val promptTokens = usage.optInt("prompt_tokens", 0)
+                        val generatedTokens = usage.optInt("completion_tokens", 0)
+                        val promptEvalMs = metrics.optLong("prompt_eval_ms", 0L)
+                        val decodeTps = metrics.optDouble("decode_tokens_per_second", 0.0)
+                        lastAnswer = chat.optJSONArray("choices")
+                            ?.optJSONObject(0)
+                            ?.optJSONObject("message")
+                            ?.optString("content", "")
+                            .orEmpty()
+                        val thermalPeak = listOf(before.thermalStatus, after.thermalStatus).maxBy { it.ordinal }
+                        val temperaturePeak = listOfNotNull(
+                            before.batteryTemperatureCelsius,
+                            after.batteryTemperatureCelsius
+                        ).maxOrNull()
+                        samples += BenchmarkRunSample(
+                            runIndex = index,
+                            promptTokens = promptTokens,
+                            generatedTokens = generatedTokens,
+                            loadTimeMs = loadMs,
+                            promptEvalMs = promptEvalMs,
+                            firstTokenMs = metrics.optLong("first_token_ms", 0L),
+                            decodeMs = metrics.optLong("decode_ms", 0L),
+                            totalMs = metrics.optLong("total_ms", 0L),
+                            prefillTokensPerSecond = if (promptEvalMs > 0L) {
+                                promptTokens * 1000.0 / promptEvalMs
+                            } else {
+                                0.0
+                            },
+                            decodeTokensPerSecond = decodeTps,
+                            memoryPeakMb = metrics.optLong("memory_peak_mb", 0L),
+                            availableMemoryBeforeMb = before.availableMemoryMb,
+                            batteryPercentStart = before.batteryPercent,
+                            batteryPercentEnd = after.batteryPercent,
+                            batteryTemperatureStartCelsius = before.batteryTemperatureCelsius,
+                            batteryTemperaturePeakCelsius = temperaturePeak,
+                            batteryTemperatureEndCelsius = after.batteryTemperatureCelsius,
+                            thermalStart = before.thermalStatus,
+                            thermalPeak = thermalPeak,
+                            thermalEnd = after.thermalStatus,
+                            chargingStart = before.charging,
+                            chargingEnd = after.charging,
+                            completed = generatedTokens > 0 && decodeTps > 0.0,
+                            failureKind = if (generatedTokens > 0 && decodeTps > 0.0) null else BenchmarkFailureKind.METRICS_INCOMPLETE
+                        )
+                        if (index < spec.profile.measuredRuns - 1 && spec.profile.cooldownMs > 0L) {
+                            updateTestStatus("散热等待 ${spec.profile.cooldownMs / 1000L} 秒...")
+                            Thread.sleep(spec.profile.cooldownMs)
+                            throwIfBenchmarkCancelled()
+                        }
+                    }
+
+                    val summary = BenchmarkAggregator.aggregate(spec, samples)
+                    val score = BenchmarkScoreEngine.score(summary)
+                    val report = BenchmarkReport(
+                        runId = "run-${UUID.randomUUID()}",
+                        createdAtMs = System.currentTimeMillis(),
+                        manifestSha256 = BenchmarkManifestRepository.EXPECTED_MANIFEST_SHA256,
+                        device = BenchmarkDeviceIdentity(
+                            manufacturer = deviceProfile.manufacturer,
+                            model = deviceProfile.model,
+                            device = Build.DEVICE,
+                            androidRelease = Build.VERSION.RELEASE,
+                            apiLevel = Build.VERSION.SDK_INT,
+                            abi = deviceProfile.abi,
+                            totalMemoryMb = deviceProfile.totalRamMb,
+                            coreCount = deviceProfile.coreCount
+                        ),
+                        summary = summary,
+                        score = score
                     )
-                    val firstToken = metricsJson.optLong(
-                        "last_first_token_ms",
-                        mobilecore.optLong("first_token_ms", 0L)
-                    )
-                    val total = metricsJson.optLong(
-                        "last_total_ms",
-                        mobilecore.optLong("total_ms", chatResult.elapsedMs)
-                    )
-                    val loadMs = loadJson.optLong("load_time_ms", loadResult.elapsedMs)
-                    val memoryPeak = metricsJson.optLong("memory_peak_mb", mobilecore.optLong("memory_peak_mb", 0L))
-                    val quantization = GgufMetadataReader.read(model).quantization
-                    val benchmarkResult = BenchmarkResult(
-                        spec = spec,
-                        deviceName = displayDeviceName(deviceProfile.manufacturer, deviceProfile.model),
-                        totalRamMb = deviceProfile.totalRamMb,
-                        availableRamMb = deviceProfile.availableRamMb,
-                        coreCount = deviceProfile.coreCount,
-                        modelId = model.nameWithoutExtension,
-                        modelPath = model.absolutePath,
-                        quantization = quantization,
-                        modelSizeBytes = model.length(),
-                        backend = deviceProfile.backend,
-                        loadTimeMs = loadMs,
-                        firstTokenMs = firstToken,
-                        totalMs = total,
-                        decodeTokensPerSecond = tps,
-                        memoryPeakMb = memoryPeak,
-                        completed = true
-                    )
-                    val score = BenchmarkScorer.score(benchmarkResult)
-                    val (_, localRank) = BenchmarkLeaderboardStore(applicationContext).record(benchmarkResult, score)
+                    BenchmarkReportStore(applicationContext).record(report)
 
                     runOnUiThread {
                         isTestRunning = false
-                        testResultText?.text = "检测完成 · 综合分 ${score.total} · 本机第 ${localRank}\n${benchmarkOutputPreview(answer)}"
-                        testMetricsText?.text = "速度 ${score.speed} · 响应 ${score.response} · 内存 ${score.memory} · 稳定 ${score.stability} · ${"%.2f".format(Locale.US, tps)} tok/s"
+                        if (score == null) {
+                            testResultText?.text = "跑分无效 · ${summary.failureKind?.apiName ?: "metrics_incomplete"}\n报告已保存，可用于诊断。"
+                            testMetricsText?.text = "未生成分数 · 已完成 ${summary.completedRuns}/${summary.measuredRuns}"
+                        } else {
+                            testResultText?.text = "${score.headlineScore} TuiMa · 标准分 ${score.canonicalScore}/1000\n${benchmarkProfileName(profile)} · ${benchmarkOutputPreview(lastAnswer)}"
+                            testMetricsText?.text = "推理 ${score.inference}/350 · 响应 ${score.responsiveness}/150 · 内存 ${score.memory}/150 · 持续 ${score.sustainedPerformance}/200 · 稳定 ${score.stability}/150"
+                        }
                         refreshRuntimeSnapshotCard(
                             modelName = model.nameWithoutExtension,
-                            memoryText = if (memoryPeak > 0L) "${memoryPeak} MB" else formatBytes(model.length()),
+                            memoryText = if (summary.memoryPeakMb > 0L) "${summary.memoryPeakMb} MB" else formatBytes(model.length()),
                             apiStatus = "已启动",
-                            speedText = "${"%.2f".format(Locale.US, tps)} tok/s"
+                            speedText = "${"%.2f".format(Locale.US, summary.medianDecodeTokensPerSecond)} tok/s"
                         )
-                        routeStatusText?.text = "检测完成 · 本机第 ${localRank}"
-                        updateStatus("检测完成 · 综合分 ${score.total}")
+                        routeStatusText?.text = if (score != null) "跑分完成 · ${score.headlineScore} TuiMa" else "跑分无效"
+                        updateStatus(if (score != null) "TuiMa ${score.headlineScore}" else "跑分无效")
                         renderLocalLeaderboard()
                         refreshRecommendationSnapshot()
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    val failureKind = when (e) {
+                        is BenchmarkRunException -> e.kind
+                        is SocketTimeoutException -> BenchmarkFailureKind.TIMEOUT
+                        is OutOfMemoryError -> BenchmarkFailureKind.OOM
+                        else -> BenchmarkFailureKind.RUNTIME_UNAVAILABLE
+                    }
+                    val failedSummary = BenchmarkAggregator.invalid(spec, failureKind)
+                    runCatching {
+                        BenchmarkReportStore(applicationContext).record(
+                            BenchmarkReport(
+                                runId = "run-${UUID.randomUUID()}",
+                                createdAtMs = System.currentTimeMillis(),
+                                manifestSha256 = BenchmarkManifestRepository.EXPECTED_MANIFEST_SHA256,
+                                device = BenchmarkDeviceIdentity(
+                                    manufacturer = deviceProfile.manufacturer,
+                                    model = deviceProfile.model,
+                                    device = Build.DEVICE,
+                                    androidRelease = Build.VERSION.RELEASE,
+                                    apiLevel = Build.VERSION.SDK_INT,
+                                    abi = deviceProfile.abi,
+                                    totalMemoryMb = deviceProfile.totalRamMb,
+                                    coreCount = deviceProfile.coreCount
+                                ),
+                                summary = failedSummary,
+                                score = null
+                            )
+                        )
+                    }
                     runOnUiThread {
                         isTestRunning = false
-                        testResultText?.text = "检测失败。请确认模型文件完整、服务已启动后再试。"
-                        testMetricsText?.text = "速度 -- · 首字 -- · 总耗时 --"
-                        routeStatusText?.text = "检测失败"
-                        updateStatus("检测失败")
+                        testResultText?.text = e.message?.takeIf { it.isNotBlank() }
+                            ?: "TuiMa 跑分失败。请确认模型文件完整、服务已启动。"
+                        testMetricsText?.text = "推理 -- · 响应 -- · 内存 -- · 持续 -- · 稳定 --"
+                        routeStatusText?.text = "TuiMa 跑分失败"
+                        updateStatus("TuiMa 跑分失败")
                     }
                 }
             }.start()
         }
+    }
+
+    private fun executeBenchmarkChat(body: String, timeoutMs: Long): JSONObject {
+        val result = try {
+            localApiRequestBlocking(
+                path = "/v1/chat/completions",
+                method = "POST",
+                body = body,
+                retryCount = 1,
+                readTimeoutMs = timeoutMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            )
+        } catch (e: SocketTimeoutException) {
+            RuntimeBridge.cancel()
+            throw BenchmarkRunException(BenchmarkFailureKind.TIMEOUT, "推理超时", e)
+        }
+        if (result.status !in 200..299) {
+            throw BenchmarkRunException(
+                BenchmarkFailureKind.RUNTIME_UNAVAILABLE,
+                "推理请求失败 ${result.status}: ${result.body.take(160)}"
+            )
+        }
+        return JSONObject(result.body)
+    }
+
+    private fun cancelBenchmark() {
+        if (!isTestRunning) {
+            Toast.makeText(this, "当前没有跑分任务", Toast.LENGTH_SHORT).show()
+            return
+        }
+        benchmarkCancellationRequested = true
+        RuntimeBridge.cancel()
+        updateTestStatus("正在取消 TuiMa 跑分...")
+    }
+
+    private fun throwIfBenchmarkCancelled() {
+        if (benchmarkCancellationRequested) {
+            throw BenchmarkRunException(BenchmarkFailureKind.CANCELLED, "跑分已取消")
+        }
+    }
+
+    private fun benchmarkProfileName(profile: BenchmarkProfile): String = when (profile) {
+        BenchmarkProfile.QUICK -> "快速模式"
+        BenchmarkProfile.STANDARD -> "标准模式"
+        BenchmarkProfile.STRESS -> "压力模式"
+    }
+
+    private fun preflightReasonLabel(reason: BenchmarkPreflightReason): String = when (reason) {
+        BenchmarkPreflightReason.BATTERY_TOO_LOW -> "电量低于 30% 或无法读取"
+        BenchmarkPreflightReason.DEVICE_CHARGING -> "请断开充电"
+        BenchmarkPreflightReason.THERMAL_TOO_HIGH -> "设备温度过高"
+        BenchmarkPreflightReason.STORAGE_TOO_LOW -> "存储空间不足"
+        BenchmarkPreflightReason.MODEL_INVALID -> "标准模型校验失败"
+        BenchmarkPreflightReason.PROMPT_INVALID -> "提示词校验失败"
+        BenchmarkPreflightReason.RUNTIME_UNAVAILABLE -> "本机推理服务不可用"
+        BenchmarkPreflightReason.BENCHMARK_ALREADY_RUNNING -> "已有跑分任务"
     }
 
     private fun updateTestStatus(message: String) {

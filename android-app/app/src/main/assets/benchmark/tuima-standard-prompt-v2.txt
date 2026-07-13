@@ -1,0 +1,1 @@
+You are running the TuiMa local AI inference benchmark. Follow the instructions without explanation. Inspect this sequence: 3, 6, 12, 24, 48. Continue the doubling pattern for two more values, add those two values together, and return exactly one line in this format: TUIMA_RESULT=<integer>. Do not emit markdown, reasoning, punctuation, or any additional text.
