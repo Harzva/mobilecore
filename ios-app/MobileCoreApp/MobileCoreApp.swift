@@ -101,6 +101,7 @@ final class MobileCoreAppState: ObservableObject {
     init() {
         refreshModels()
         lastMetrics = runtime.metrics()
+        runInferenceProbeIfRequested()
     }
 
     func refreshModels() {
@@ -258,6 +259,131 @@ final class MobileCoreAppState: ObservableObject {
         lastReply += tokenText
         if !isChatCancelling {
             statusMessage = "Streaming reply"
+        }
+    }
+
+    private func runInferenceProbeIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--tuima-inference-probe") else {
+            return
+        }
+
+        let marker = argumentValue(named: "--tuima-probe-marker", in: arguments) ?? "TUIMA_IOS_OK"
+        let maxTokens = Int(argumentValue(named: "--tuima-probe-max-tokens", in: arguments) ?? "24") ?? 24
+        let outputURL = modelManager.modelsDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("qa", isDirectory: true)
+            .appendingPathComponent("ios-inference-probe.json")
+        let platform = Self.probePlatform
+        let modelManager = self.modelManager
+        let runtime = self.runtime
+
+        statusMessage = "Running iOS inference probe"
+        Task {
+            let report: [String: Any]
+            do {
+                guard let model = modelManager.firstAvailableModel(loadedPath: runtime.loadedModelPath) else {
+                    throw InferenceProbeError.modelNotFound
+                }
+
+                report = try await Task.detached(priority: .userInitiated) {
+                    let load = try runtime.loadModel(
+                        path: model.path,
+                        options: LoadOptions(contextLength: 512, threads: 4, gpuLayers: 0)
+                    )
+                    let result = try runtime.chat(
+                        messages: [
+                            ChatMessage(
+                                role: "user",
+                                content: "Reply with exactly \(marker) and nothing else."
+                            )
+                        ],
+                        options: ChatOptions(
+                            model: load.modelId,
+                            maxTokens: max(1, min(maxTokens, 64)),
+                            temperature: 0,
+                            stream: false
+                        )
+                    )
+                    let normalizedReply = result.message
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let markerMatched = normalizedReply == marker
+
+                    return [
+                        "schema_version": 1,
+                        "valid": result.completionTokens > 0 && markerMatched,
+                        "platform": platform,
+                        "backend": runtime.backendInfo().id,
+                        "backend_mode": runtime.backendInfo().mode,
+                        "model_id": load.modelId,
+                        "load_time_ms": load.loadTimeMs,
+                        "prompt": "Reply with exactly <marker> and nothing else.",
+                        "expected_marker": marker,
+                        "marker_matched": markerMatched,
+                        "reply": normalizedReply,
+                        "finish_reason": result.finishReason,
+                        "prompt_tokens": result.promptTokens,
+                        "completion_tokens": result.completionTokens,
+                        "first_token_ms": result.firstTokenMs,
+                        "decode_ms": result.decodeMs,
+                        "total_ms": result.totalMs,
+                        "decode_tokens_per_second": result.decodeTokensPerSecond,
+                        "memory_peak_mb": result.memoryPeakMb
+                    ]
+                }.value
+                statusMessage = (report["valid"] as? Bool) == true
+                    ? "iOS inference probe passed"
+                    : "iOS inference probe failed"
+            } catch {
+                report = [
+                    "schema_version": 1,
+                    "valid": false,
+                    "platform": platform,
+                    "error": error.localizedDescription
+                ]
+                statusMessage = "iOS inference probe failed"
+            }
+
+            do {
+                try FileManager.default.createDirectory(
+                    at: outputURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let data = try JSONSerialization.data(
+                    withJSONObject: report,
+                    options: [.prettyPrinted, .sortedKeys]
+                )
+                try data.write(to: outputURL, options: .atomic)
+            } catch {
+                statusMessage = "Could not write inference probe report"
+            }
+            refreshModels()
+        }
+    }
+
+    private func argumentValue(named name: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+
+    private static var probePlatform: String {
+#if targetEnvironment(simulator)
+        "ios-simulator"
+#else
+        "ios-device"
+#endif
+    }
+}
+
+enum InferenceProbeError: LocalizedError {
+    case modelNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotFound:
+            return "No GGUF model is available for the inference probe."
         }
     }
 }

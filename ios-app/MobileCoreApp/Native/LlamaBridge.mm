@@ -47,7 +47,7 @@ static long long ElapsedMs(std::chrono::steady_clock::time_point start,
     return std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 }
 
-static NSString *PromptFromMessages(NSArray *messages) {
+static NSString *FallbackPromptFromMessages(NSArray *messages) {
     NSMutableString *prompt = [NSMutableString string];
     for (NSDictionary *message in messages) {
         if (![message isKindOfClass:[NSDictionary class]]) {
@@ -71,6 +71,74 @@ static NSString *PromptFromMessages(NSArray *messages) {
     }
     [prompt appendString:@"assistant:"];
     return prompt;
+}
+
+static NSString *PromptFromMessages(NSArray *messages, const llama_model *model) {
+    std::vector<std::string> roles;
+    std::vector<std::string> contents;
+    roles.reserve(messages.count);
+    contents.reserve(messages.count);
+
+    for (NSDictionary *message in messages) {
+        if (![message isKindOfClass:[NSDictionary class]]) {
+            continue;
+        }
+        NSString *content = message[@"content"];
+        if (![content isKindOfClass:[NSString class]] || content.length == 0) {
+            continue;
+        }
+        NSString *role = [message[@"role"] isKindOfClass:[NSString class]]
+            ? message[@"role"]
+            : @"user";
+        roles.push_back(UTF8String(role));
+        contents.push_back(UTF8String(content));
+    }
+
+    if (contents.empty()) {
+        return @"user: Hello\nassistant:";
+    }
+
+    std::vector<llama_chat_message> chat;
+    chat.reserve(contents.size());
+    size_t contentBytes = 0;
+    for (size_t index = 0; index < contents.size(); ++index) {
+        chat.push_back({roles[index].c_str(), contents[index].c_str()});
+        contentBytes += roles[index].size() + contents[index].size();
+    }
+
+    const char *chatTemplate = llama_model_chat_template(model, nullptr);
+    if (chatTemplate == nullptr) {
+        return FallbackPromptFromMessages(messages);
+    }
+
+    std::vector<char> buffer(std::max<size_t>(1024, contentBytes * 2 + 256));
+    int32_t promptBytes = llama_chat_apply_template(
+        chatTemplate,
+        chat.data(),
+        chat.size(),
+        true,
+        buffer.data(),
+        static_cast<int32_t>(buffer.size())
+    );
+    if (promptBytes < 0) {
+        return FallbackPromptFromMessages(messages);
+    }
+    if (static_cast<size_t>(promptBytes) >= buffer.size()) {
+        buffer.resize(static_cast<size_t>(promptBytes) + 1);
+        promptBytes = llama_chat_apply_template(
+            chatTemplate,
+            chat.data(),
+            chat.size(),
+            true,
+            buffer.data(),
+            static_cast<int32_t>(buffer.size())
+        );
+    }
+    if (promptBytes < 0) {
+        return FallbackPromptFromMessages(messages);
+    }
+
+    return NSStringFromStdString(std::string(buffer.data(), static_cast<size_t>(promptBytes)));
 }
 
 static NSArray *MessagesFromJSON(NSString *messagesJSON) {
@@ -237,7 +305,7 @@ static NSDictionary *OptionsFromJSON(NSString *optionsJSON) {
         NSString *requestedModel = [options[@"model"] isKindOfClass:[NSString class]]
             ? options[@"model"]
             : (_activeModelId ?: @"local-model");
-        NSString *prompt = PromptFromMessages(messages);
+        NSString *prompt = PromptFromMessages(messages, _model);
         NSInteger requestedMaxTokens = [options[@"max_tokens"] respondsToSelector:@selector(integerValue)]
             ? [options[@"max_tokens"] integerValue]
             : 128;

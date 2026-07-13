@@ -1,6 +1,6 @@
-# MobileCore iOS Skeleton
+# TuiMa iOS Runtime
 
-This is the native iOS MVP shell for MobileCore:
+This is the native iOS runtime for TuiMa/MobileCore:
 
 - SwiftUI app entry
 - Files importer for `.gguf`
@@ -54,6 +54,20 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
 ```
 
 The localhost listener runs only while the app is open. iOS background service behavior is not part of this skeleton. Streaming chat is not implemented yet.
+
+## Automated real-inference probe
+
+The simulator probe builds the native app, verifies the frozen Qwen2.5 model
+digest, installs the app, copies the GGUF into its sandbox, runs llama.cpp
+inference, and validates a structured report:
+
+```bash
+./scripts/qa-inference-probe.sh
+```
+
+The report is written to `build/qa/ios-inference-probe.json`. Override
+`TUIMA_IOS_MODEL_PATH` to test another local GGUF; when doing so, also provide
+its expected digest through `TUIMA_IOS_MODEL_SHA256`.
 
 ## Next Native Step
 
