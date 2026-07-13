@@ -29,6 +29,11 @@ on:
         required: true
         default: true
         type: boolean
+      execute:
+        description: Commit the validated edit to Google Play
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -78,6 +83,7 @@ jobs:
             --result artifacts/google-play-dry-run.json
 
       - name: Commit Google Play edit
+        if: inputs.execute
         env:
           GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           TRACK: ${{ inputs.track }}

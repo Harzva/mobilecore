@@ -52,6 +52,8 @@ Run `Publish TuiMa to Google Play` and select:
 - `track`: `internal` for the first upload
 - `status`: `completed` to serve it to configured internal testers
 - `sync_listing`: enabled
+- `execute`: disabled for a credential-free remote preflight; enable it only
+  when the Play app and service-account secret are configured
 
 The workflow downloads the AAB from the GitHub prerelease rather than rebuilding
 it, validates its frozen digest, performs the Play edit, and retains a JSON
