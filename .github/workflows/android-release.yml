@@ -42,6 +42,9 @@ jobs:
             android-app/*.gradle.kts
             android-app/gradle/wrapper/gradle-wrapper.properties
 
+      - name: Bootstrap pinned llama.cpp
+        run: ./scripts/bootstrap-llama.sh
+
       - name: Configure optional upload signing
         env:
           TUIMA_RELEASE_KEYSTORE_BASE64: ${{ secrets.TUIMA_RELEASE_KEYSTORE_BASE64 }}
