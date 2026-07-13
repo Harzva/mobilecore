@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>TuiMa 隐私政策 / Privacy Policy</title>
+    <style>
+      :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.65; color: #18202a; background: #f5f7fb; }
+      body { margin: 0; }
+      main { box-sizing: border-box; max-width: 860px; min-height: 100vh; margin: 0 auto; padding: 48px 28px 72px; background: #fff; }
+      h1 { margin-bottom: 4px; font-size: 2rem; }
+      h2 { margin-top: 2rem; font-size: 1.2rem; }
+      .meta { color: #637083; }
+      a { color: #1769e0; }
+      code { padding: 2px 6px; border-radius: 5px; background: #edf1f7; }
+      @media (prefers-color-scheme: dark) {
+        :root { color: #e8edf5; background: #10151d; }
+        main { background: #171e28; }
+        .meta { color: #a9b4c3; }
+        code { background: #283342; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>TuiMa 隐私政策</h1>
+      <p class="meta">生效日期：2026 年 7 月 14 日 · Effective date: July 14, 2026</p>
+
+      <p>TuiMa 是一款在 Android 设备本地运行大语言模型并检测 AI 推理性能的工具。本政策说明 TuiMa 0.1.3 RC2 如何处理信息。</p>
+
+      <h2>1. 默认本地处理</h2>
+      <p>模型文件、提示词、模型回答、跑分样本和跑分报告默认保存在设备上。推理服务只监听 <code>127.0.0.1</code>，不会默认把提示词、回答或模型文件发送到互联网。</p>
+
+      <h2>2. 设备与性能数据</h2>
+      <p>为了计算跑分，应用会在本地读取设备型号、Android 版本、CPU 核心数、ABI、可用内存、可用存储、电量、充电状态、电池温度、系统 thermal 状态以及模型推理耗时和速度。这些信息默认仅用于本机报告。</p>
+
+      <h2>3. 文件访问</h2>
+      <p>用户可通过 Android 系统文件选择器主动选择 GGUF 模型或图片。应用只处理用户选中的文件，并可将模型复制到应用私有目录。TuiMa 不申请通讯录、位置、短信、通话记录或广泛文件系统访问权限。</p>
+
+      <h2>4. 网络与共享排行榜</h2>
+      <p>RC2 发布包未配置生产共享排行榜，默认不会上传跑分。未来若启用共享排行榜，上传必须由用户主动触发，并仅包含随机运行标识、设备显示名称、模型与量化信息、分数、速度、响应时间和内存指标；不会包含提示词、模型回答或模型文件。启用前将同步更新本政策和 Google Play 数据安全声明。</p>
+
+      <h2>5. 账号、广告与追踪</h2>
+      <p>TuiMa 不要求账号，不包含广告 SDK，也不使用跨应用追踪或行为分析 SDK。</p>
+
+      <h2>6. 保存与删除</h2>
+      <p>本地数据会保留到用户在应用内删除、清除应用数据或卸载应用。RC2 没有默认上传的数据，因此没有服务器侧个人档案。</p>
+
+      <h2>7. 儿童</h2>
+      <p>TuiMa 是面向一般技术用户的性能工具，不专门面向 13 岁以下儿童，也不会有意收集儿童个人信息。</p>
+
+      <h2>8. 联系与变更</h2>
+      <p>如有隐私问题，请通过 <a href="https://github.com/Harzva/mobilecore/issues">Harzva/mobilecore Issues</a> 联系。政策发生实质变化时，我们会更新本页的生效日期。</p>
+
+      <hr />
+
+      <h1 lang="en">TuiMa Privacy Policy</h1>
+      <p lang="en">TuiMa runs local language models on Android to benchmark on-device AI performance. Model files, prompts, responses, benchmark samples, and reports stay on the device by default. The local inference API binds only to <code>127.0.0.1</code>.</p>
+      <p lang="en">The app locally reads device model, Android version, CPU core count, ABI, available memory and storage, battery level and temperature, charging state, thermal status, and inference timing. Files are accessed only after the user selects them through Android's system picker. TuiMa does not request contacts, location, SMS, call logs, or broad file-system access.</p>
+      <p lang="en">The RC2 build has no production shared leaderboard configured and uploads no benchmark data by default. It requires no account, includes no advertising SDK, and performs no cross-app tracking. Local data can be removed by clearing app data or uninstalling the app. Questions may be filed at <a href="https://github.com/Harzva/mobilecore/issues">Harzva/mobilecore Issues</a>.</p>
+    </main>
+  </body>
+</html>
