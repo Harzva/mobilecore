@@ -58,7 +58,7 @@ TuiMa 提供 Quick、Standard、Stress 三档检测。Standard 使用冻结的 Q
 - [x] App name and descriptions
 - [x] Public privacy policy source
 - [x] Existing portrait product image: `docs/readme-assets/tuima-home.png`
-- [ ] 512×512 Play icon export
-- [ ] 1024×500 feature graphic
+- [x] 512×512 Play icon: `docs/store/assets/tuima-play-icon-512.png`
+- [x] 1024×500 feature graphic: `docs/store/assets/tuima-feature-graphic-1024x500.png`
 - [x] Two 1080×1920 Play-compatible emulator screenshots in `docs/store/assets/`
 - [ ] Physical Android Standard benchmark screenshot
