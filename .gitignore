@@ -12,6 +12,8 @@ agentworkos.local.toml
 build/
 **/build/
 **/.cxx/
+__pycache__/
+*.pyc
 *.apk
 *.aab
 

@@ -1,0 +1,109 @@
+name: Publish TuiMa to Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: GitHub prerelease containing the upload-signed AAB
+        required: true
+        default: v0.1.3-rc2
+        type: string
+      track:
+        description: Google Play track
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - production
+      status:
+        description: Release status on the selected track
+        required: true
+        default: completed
+        type: choice
+        options:
+          - draft
+          - completed
+      sync_listing:
+        description: Replace zh-CN listing text and store images in this edit
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tuima-google-play-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout release tooling and store metadata
+        uses: actions/checkout@v4
+
+      - name: Download upload-signed AAB from GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          mkdir -p artifacts
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'tuima-*.aab' \
+            --dir artifacts
+          test "$(find artifacts -maxdepth 1 -name '*.aab' -type f | wc -l)" -eq 1
+
+      - name: Validate artifact, listing, assets, and Play request plan
+        env:
+          TRACK: ${{ inputs.track }}
+          STATUS: ${{ inputs.status }}
+          SYNC_LISTING: ${{ inputs.sync_listing }}
+        run: |
+          mapfile -t aabs < <(find artifacts -maxdepth 1 -name '*.aab' -type f)
+          sync_flag=--no-sync-listing
+          if [ "$SYNC_LISTING" = true ]; then
+            sync_flag=--sync-listing
+          fi
+          android-app/scripts/google_play_publish.py \
+            --aab "${aabs[0]}" \
+            --confirm-package com.mobilecore.app \
+            --track "$TRACK" \
+            --status "$STATUS" \
+            "$sync_flag" \
+            --dry-run \
+            --result artifacts/google-play-dry-run.json
+
+      - name: Commit Google Play edit
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          TRACK: ${{ inputs.track }}
+          STATUS: ${{ inputs.status }}
+          SYNC_LISTING: ${{ inputs.sync_listing }}
+        run: |
+          test -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON"
+          mapfile -t aabs < <(find artifacts -maxdepth 1 -name '*.aab' -type f)
+          sync_flag=--no-sync-listing
+          if [ "$SYNC_LISTING" = true ]; then
+            sync_flag=--sync-listing
+          fi
+          android-app/scripts/google_play_publish.py \
+            --aab "${aabs[0]}" \
+            --confirm-package com.mobilecore.app \
+            --track "$TRACK" \
+            --status "$STATUS" \
+            "$sync_flag" \
+            --execute \
+            --result artifacts/google-play-result.json
+
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tuima-google-play-publication
+          path: artifacts/*.json
+          if-no-files-found: warn
+          retention-days: 30

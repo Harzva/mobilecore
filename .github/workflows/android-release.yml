@@ -58,7 +58,9 @@ jobs:
           fi
 
       - name: Unit tests and lint
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug
+        run: |
+          ./gradlew --no-daemon testDebugUnitTest lintDebug
+          python3 -m unittest discover -s scripts/tests -v
 
       - name: Build APK and App Bundle
         env:

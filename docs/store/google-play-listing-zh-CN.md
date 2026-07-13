@@ -62,3 +62,6 @@ TuiMa 提供 Quick、Standard、Stress 三档检测。Standard 使用冻结的 Q
 - [x] 1024×500 feature graphic: `docs/store/assets/tuima-feature-graphic-1024x500.png`
 - [x] Two 1080×1920 Play-compatible emulator screenshots in `docs/store/assets/`
 - [ ] Physical Android Standard benchmark screenshot
+
+Repository-side upload and listing synchronization are documented in
+[google-play-submit.md](./google-play-submit.md).
