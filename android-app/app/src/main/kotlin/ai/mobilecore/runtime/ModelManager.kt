@@ -15,7 +15,9 @@ class ModelManager(
         val discovered = modelDirectories()
             .flatMap { dir ->
                 dir.listFiles { file ->
-                    file.isFile && file.extension.lowercase() == "gguf"
+                    file.isFile &&
+                        file.extension.lowercase() == "gguf" &&
+                        !file.name.startsWith("mmproj-", ignoreCase = true)
                 }?.toList() ?: emptyList()
             }
             .distinctBy { it.absolutePath }

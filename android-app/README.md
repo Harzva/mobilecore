@@ -1,4 +1,4 @@
-# MobileCore Android Skeleton (v0.1)
+# TuiMa / MobileCore Android (0.1.3-rc2)
 
 本文件记录 Android 原生 MVP 骨架的本地启动方式。当前 APK 会编译并加载 `mobilecore_llama` JNI library，已链接 llama.cpp，并提供 OpenAI-compatible mock/fallback 路由、模型目录发现和最小 GGUF 加载入口。
 
@@ -28,7 +28,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n com.mobilecore.app/ai.mobilecore.MainActivity
 ```
 
-在主页面点击 `启动服务` 控制本机服务，点击 `导入` 可以通过系统文件选择器导入模型到 app 私有 `files/models/`，导入完成后会触发一次 `loadModel`。`检测` tab 里的 `开始检测` 会执行一键 smoke test：启动服务、加载模型、发送本机 chat、读取 `/metrics`，并记录 tok/s、TTFT、总耗时和本机排行榜分数。
+在主页面点击 `启动服务` 控制本机服务，点击 `导入` 可以通过系统文件选择器导入模型到 app 私有 `files/models/`，导入完成后会触发一次 `loadModel`。`检测` tab 提供 Quick、Standard、Stress 三档 TuiMa v2 跑分：校验冻结模型和提示词，采集 tok/s、TTFT、RAM、电池与 Android thermal 状态，输出 0–1000 标准分和 0–1,000,000 展示分。
 
 启动后验证：
 
@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"local-model","messages":[{"role":"user","content":"Hello"}],"max_tokens":32}'
 ```
 
-### 0.1.2 RC release APK
+### 0.1.3-rc2 release APK
 
 常规 release 构建默认不签名，产物用于 CI 或后续正式签名：
 
@@ -71,7 +71,7 @@ Models tab 也内置了 ModelScope 模型站入口：应用会通过 ModelScope 
 ./scripts/download-gguf.sh --install-tools
 source .tools/model-downloaders/bin/activate
 
-# 查看内置 10 个 ModelScope GGUF alias
+# 查看内置 ModelScope GGUF alias
 ./scripts/download-gguf.sh --list
 
 # 先预览精选档位，不下载
@@ -80,6 +80,8 @@ source .tools/model-downloaders/bin/activate
 ./scripts/download-gguf.sh --all-modelscope --max-params-b 9 --dry-run
 
 # 单个 ModelScope 模型下载
+./scripts/download-gguf.sh --provider modelscope --alias gemma3-270m-q4km
+./scripts/download-gguf.sh --provider modelscope --alias gemma3-1b-q4km
 ./scripts/download-gguf.sh --provider modelscope --alias qwen2.5-0.5b-q4km
 
 # 批量下载需要显式 --yes，避免误下大文件
@@ -87,6 +89,7 @@ source .tools/model-downloaders/bin/activate
 ./scripts/download-gguf.sh --all-modelscope --tier recommended --max-params-b 4 --yes
 
 # 下载后直接推送到已安装 app，并触发 loadModel
+./scripts/download-gguf.sh --provider modelscope --alias gemma3-270m-q4km --push --load
 ./scripts/download-gguf.sh --provider modelscope --alias qwen2.5-0.5b-q4km --push --load
 ```
 
@@ -113,7 +116,61 @@ Useful discovery endpoint:
 curl -H "Authorization: Bearer local" http://127.0.0.1:8080/mobilecore/models/dirs
 ```
 
-## 4. Vision / Diffusion Model Candidates
+### Qwen2.5-Omni-3B 本地多模态边界
+
+MobileCore 的 llama.cpp/libmtmd 路线只提供 `text/image/audio -> text`，不支持 video input，也不支持 audio/speech output。所选模型是 `ggml-org` 发布的 GGUF conversion，不是“Qwen 官方 GGUF”。完整安装需要主模型 Q4_K_M 与 Q8 mmproj 两个文件，总计 3,642,962,976 bytes，不能宣传成“约 2 GB 完整多模态”。
+
+`GET /health` 会按输入/输出模态分别报告当前已加载 runtime 的真实能力，同时返回 active model、quantization、llama.cpp revision、两个 artifact 的 SHA-256/校验状态以及内存和存储预检。安装生命周期保持 app-private，并要求明确同意、source-declared license ID、默认 Wi-Fi-only、临时文件、校验、取消和卸载：
+
+```bash
+curl http://127.0.0.1:8080/health
+curl -H "Authorization: Bearer local" http://127.0.0.1:8080/mobilecore/omni/status
+curl -X POST http://127.0.0.1:8080/mobilecore/omni/install \
+  -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{"explicit_consent":true,"accepted_license_id":"qwen-research","wifi_only":true}'
+```
+
+安装是异步操作，客户端轮询 `status`。另有 authenticated `cancel`、`verify`、`load`、`uninstall` 路由。不要在脚本、CI 或首次启动时自动调用 `install`；必须先向用户展示 3.64 GB 总量及 `source_declared_not_legal_reviewed` 状态并取得明确同意。详见 [`../docs/qwen25-omni-3b-compatibility.md`](../docs/qwen25-omni-3b-compatibility.md) 与 [`../docs/mobilecode-local-multimodal-contract.md`](../docs/mobilecode-local-multimodal-contract.md)。
+
+## 4. Phone Agent / VLM Model Candidates
+
+PhoneBuddy 这类手机 agent / 多模态模型不要放进 GGUF LLM catalog。`PhoneBuddyAI/PhoneBuddy-4B` 是 Hugging Face safetensors / BF16 / `qwen3_5` / image-text-to-text 模型，约 4.54B 参数、权重索引约 8.7GB；当前 Android runtime 只支持 GGUF 文本模型、ONNX/TFLite 视觉模型和 diffusion readiness gate，不能直接加载这个 checkpoint。
+
+当前候选清单在 `model-downloads/phone-agent-catalog.tsv`。初步探测结果：
+
+- `PhoneBuddyAI/PhoneBuddy-4B` 和 `PhoneBuddyAI/PhoneBuddy-4B-RealApp` 都是约 8.7GB safetensors 权重，不是单文件 GGUF。
+- `PhoneBuddyAI/PhoneBuddy-0.8B` 更适合作为首个兼容性 probe，但同样是 `qwen3_5` / VLM 形态。
+- `transformers==4.57.6` 的 `AutoConfig` 不能识别 `model_type=qwen3_5`；`AutoProcessor` 还需要 PyTorch/Torchvision 视觉栈。
+- Hugging Face model card 给出的可行部署方向是 vLLM / SGLang / Docker Model Runner；MobileCore 若要接入，需要先新增远端 OpenAI-compatible proxy，或把 PhoneBuddy/Qwen3.5-VL 转成 Android 可用 runtime。
+
+Minimal non-weight compatibility probe:
+
+```bash
+python3 -m venv /tmp/phonebuddy-probe
+/tmp/phonebuddy-probe/bin/python -m pip install "transformers==4.57.6" huggingface_hub pillow
+/tmp/phonebuddy-probe/bin/python - <<'PY'
+from transformers import AutoConfig, AutoProcessor
+
+repo = "PhoneBuddyAI/PhoneBuddy-4B"
+for name, call in [
+    ("AutoConfig", lambda: AutoConfig.from_pretrained(repo, trust_remote_code=False)),
+    ("AutoProcessor", lambda: AutoProcessor.from_pretrained(repo, trust_remote_code=False)),
+]:
+    try:
+        print(name, type(call()))
+    except Exception as error:
+        print(name, type(error).__name__, str(error)[:240])
+PY
+```
+
+Do not claim PhoneBuddy is deployed in MobileCore until one of these is true:
+
+- A GGUF/llama.cpp-compatible text-only conversion exists and passes `/mobilecore/model/load` + `/v1/chat/completions`.
+- A VLM runtime is integrated and can run `qwen3_5` image-text prompts.
+- A remote vLLM/SGLang endpoint is configured through a separate provider adapter without storing tokens in the repo.
+
+## 5. Vision / Diffusion Model Candidates
 
 扩散模型不要放进 GGUF LLM catalog；它们需要 MNN、ONNX Runtime Mobile 或 TFLite/NCNN 这样的视觉推理后端。当前候选清单在 `model-downloads/diffusion-catalog.tsv`。
 
@@ -187,7 +244,7 @@ CLIP / CIFAR10 / MNIST 路线：
 
 研究候选包括 `BK-SDM Tiny`、`LCM Dreamshaper int8/OpenVINO`、`Dreamshaper LCM ONNX` 和 `SD-Turbo`。这些不应进入 0.1.2 首发下载队列，除非先完成 Android 端转换、加载、内存和耗时验收。
 
-## 5. Real Benchmark Metrics
+## 6. Real Benchmark Metrics
 
 After a non-streaming chat call, `/metrics` exposes the latest native llama.cpp timing:
 
@@ -207,9 +264,18 @@ The response includes:
 
 The same timing fields are also returned under `mobilecore` in `/v1/chat/completions`.
 
-## 6. Leaderboard
+TuiMa v2 使用冻结的 `Qwen/Qwen2.5-0.5B-Instruct-GGUF` Q4_K_M 文件和版本化提示词。Quick 用于快速检查，Standard 是可比较的正式档，Stress 用于持续性能检查。最新结构化报告和本机历史报告可通过以下接口读取：
 
-本机榜不需要网络，`开始检测` 完成后会写入 app 私有存储：
+```bash
+curl -H "Authorization: Bearer local" http://127.0.0.1:8080/v1/benchmark/latest
+curl -H "Authorization: Bearer local" http://127.0.0.1:8080/v1/benchmark/reports?limit=10
+```
+
+跑分前会检查电量、充电状态、thermal 状态、剩余存储、模型 SHA-256、提示词 SHA-256 和本机 runtime。门禁失败、超时或运行时故障会保存为无分数的 typed invalid report，不会伪造分数。
+
+## 7. Leaderboard
+
+旧版 v1 本机榜继续保留用于兼容历史记录；TuiMa v2 报告不需要网络，完成或失败后都会写入 app 私有存储：
 
 ```bash
 curl -H "Authorization: Bearer local" \
@@ -284,11 +350,11 @@ curl -X POST -H "Authorization: Bearer local" \
   "http://127.0.0.1:8080/leaderboard/shared?limit=10"
 ```
 
-## 7. 与 MobileCode 的连接
+## 8. 与 MobileCode 的连接
 
 默认地址保持 `http://127.0.0.1:8080/v1`。
 
-## 8. Recommendation API
+## 9. Recommendation API
 
 推荐接口会综合设备探测、GGUF 元数据、偏好权重和最近一次 benchmark 结果：
 
@@ -303,7 +369,27 @@ curl -H "Authorization: Bearer local" \
 
 评分参数位于 `app/src/main/assets/recommendation_scoring.json`，UI 首页的偏好滑块会映射到这三档。
 
-## 9. 下一步
+## 10. Oxford-Pets / G2D 端侧验证
+
+G2D 正式验证固定使用 Oxford-IIIT Pets 官方 `annotations/test.txt`：37 类、3,669 张，不重新随机划分。运行档位为每类 1 张（37）、每类 10 张（370）和完整测试集（3,669）。CIFAR-10 只保留为视觉运行时的快速工程回归。
+
+官方下载地址：
+
+- `https://www.robots.ox.ac.uk/~vgg/data/pets/data/annotations.tar.gz`
+- `https://www.robots.ox.ac.uk/~vgg/data/pets/data/images.tar.gz`
+
+仅校验官方标注协议时：
+
+```bash
+./gradlew testDebugUnitTest \
+  --tests 'ai.mobilecore.g2d.OxfordPetsOfficialDatasetIntegrationTest' \
+  -PoxfordPetsTestSplit=/absolute/path/to/annotations/test.txt \
+  -PoxfordPetsImages=/absolute/path/to/images
+```
+
+验证页对照五种策略：`CLIP-only`、`VLM-only`、`G2D 1θ`、`G2D 2θ`、`Agentic G2D`。Agentic 版本把 `clip_direct`、`vlm_full_labels`、`candidate_verifier`、`candidate_verifier_no_prob` 注册为封闭工具；本地小模型只做工具选择，不接收测试真值。非法或不可用工具调用会记录并回退到 2θ 规则基线。
+
+## 11. 下一步
 
 1. 为 `loadModel` 增加加载中/加载失败状态查询，避免大模型加载时客户端只能等待。
 2. 把当前 greedy decode 扩展成可配置 sampler，并补齐 stream 模式。

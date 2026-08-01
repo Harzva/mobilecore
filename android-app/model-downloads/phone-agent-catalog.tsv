@@ -1,0 +1,6 @@
+# alias	provider	repo	engine	format	approx_size_mb	stage	reason
+# Phone-use / VLM agents are intentionally separate from GGUF LLM catalog.
+# MobileCore cannot load these through llama.cpp until they are converted to a supported mobile runtime.
+phonebuddy-4b	hf	PhoneBuddyAI/PhoneBuddy-4B	Transformers/vLLM/SGLang	Safetensors BF16 qwen3_5 VLM	8658	runtime-blocked	Main Real+Mock RL phone-agent checkpoint; requires qwen3_5/Qwen3VL runtime support and full multimodal stack, not GGUF.
+phonebuddy-4b-realapp	hf	PhoneBuddyAI/PhoneBuddy-4B-RealApp	Transformers/vLLM/SGLang	Safetensors BF16 qwen3_5 VLM	8658	runtime-blocked	Real-app-only ablation checkpoint; same runtime requirements as PhoneBuddy-4B.
+phonebuddy-0.8b	hf	PhoneBuddyAI/PhoneBuddy-0.8B	Transformers/vLLM/SGLang	Safetensors BF16 qwen3_5 VLM	1627	probe-candidate	Smaller public checkpoint for first compatibility probes before attempting the 4B model.

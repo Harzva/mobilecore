@@ -1,9 +1,7 @@
 package ai.mobilecore.network
 
 import ai.mobilecore.benchmark.BenchmarkReportStore
-import ai.mobilecore.runtime.BackendInfo
 import ai.mobilecore.runtime.BenchmarkLeaderboardStore
-import ai.mobilecore.runtime.ChatMessage
 import ai.mobilecore.runtime.ChatOptions
 import ai.mobilecore.runtime.DeviceRecommendation
 import ai.mobilecore.runtime.LoadOptions
@@ -26,6 +24,7 @@ import fi.iki.elonen.NanoHTTPD.ResponseException
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.io.File
 import java.security.MessageDigest
 
 class LocalApiServer(
@@ -33,9 +32,8 @@ class LocalApiServer(
     private val modelManager: ModelManager,
     private val context: Context,
     private val apiKey: String = "local",
-    host: String = "127.0.0.1",
     port: Int = 8080
-) : NanoHTTPD(host, port) {
+) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
     private val apiVersion = "0.1.3-rc2"
     private val deviceProbe = DeviceProbe(context.applicationContext)
@@ -46,6 +44,13 @@ class LocalApiServer(
     private val sharedLeaderboardConfigSource = SharedLeaderboardConfigSource(context.applicationContext)
     private val visionModelManager = VisionModelManager(context.applicationContext)
     private val visionRuntime = VisionRuntime(visionModelManager)
+    private val openAiChatParser = OpenAiChatRequestParser(createSecureMediaStore(context.applicationContext))
+    private val omniController = OmniLocalController(
+        context = context.applicationContext,
+        backend = backend,
+        version = apiVersion,
+        modelManager = modelManager,
+    )
     private val allowedCorsOrigins = setOf(
         "https://harzva.github.io",
         "http://localhost:5173",
@@ -59,7 +64,7 @@ class LocalApiServer(
         }
 
         val response = when {
-            isHealthRoute(session) && method == Method.GET -> okResponse(buildHealth(backend.backendInfo()))
+            isHealthRoute(session) && method == Method.GET -> okResponse(omniController.health().toString(2))
             isModelsRoute(session) && method == Method.GET -> {
                 if (!hasAuth(session)) unauthorized() else okResponse(buildModels())
             }
@@ -122,6 +127,30 @@ class LocalApiServer(
 
             isModelDirsRoute(session) && method == Method.GET -> {
                 if (!hasAuth(session)) unauthorized() else okResponse(buildModelDirs())
+            }
+
+            isOmniStatusRoute(session) && method == Method.GET -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(omniController.status().toString(2))
+            }
+
+            isOmniInstallRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else onOmniInstall(session)
+            }
+
+            isOmniCancelRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else okResponse(omniController.cancel().toString(2))
+            }
+
+            isOmniVerifyRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else omniResult(omniController.verify())
+            }
+
+            isOmniLoadRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else onOmniLoad(session)
+            }
+
+            isOmniUninstallRoute(session) && (method == Method.POST || method == Method.DELETE) -> {
+                if (!hasAuth(session)) unauthorized() else omniResult(omniController.uninstall())
             }
 
             else -> newFixedLengthResponse(
@@ -197,18 +226,47 @@ class LocalApiServer(
         return session.uri == "/mobilecore/models/dirs"
     }
 
+    private fun isOmniStatusRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/status"
+
+    private fun isOmniInstallRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/install"
+
+    private fun isOmniCancelRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/cancel"
+
+    private fun isOmniVerifyRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/verify"
+
+    private fun isOmniLoadRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/load"
+
+    private fun isOmniUninstallRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/omni/uninstall"
+
     private fun hasAuth(session: IHTTPSession): Boolean {
         val headerValue = session.headers["authorization"] ?: session.headers["Authorization"] ?: return false
         return headerValue == "Bearer $apiKey"
     }
 
     private fun onChat(session: IHTTPSession): Response {
+        val declaredLength = session.headers["content-length"]?.toLongOrNull()
+        if (declaredLength != null && declaredLength > MAX_CHAT_REQUEST_BYTES) {
+            return apiError(
+                ApiFailureCode.MEDIA_TOO_LARGE,
+                "request exceeds the configured size limit",
+            )
+        }
         return try {
             val body = parseBody(session)
+            if (body.toByteArray(Charsets.UTF_8).size.toLong() > MAX_CHAT_REQUEST_BYTES) {
+                return apiError(
+                    ApiFailureCode.MEDIA_TOO_LARGE,
+                    "request exceeds the configured size limit",
+                )
+            }
             val request = JSONObject(body)
             val model = request.optString("model", modelManager.defaultModelId())
-            val messages = request.optJSONArray("messages") ?: JSONArray()
-            val chatMessages = messages.toChatMessages()
             val options = ChatOptions(
                 model = model,
                 maxTokens = request.optInt("max_tokens", 512),
@@ -216,7 +274,10 @@ class LocalApiServer(
                 stream = request.optBoolean("stream", false)
             )
 
-            val result = backend.chat(chatMessages, options)
+            val parsedRequest = openAiChatParser.parse(request)
+            val result = parsedRequest.use { parsed ->
+                OpenAiChatDispatcher.dispatch(backend, parsed, options)
+            }
             benchmarkStore.record(model, result)
             if (!result.model.equals(model, ignoreCase = true)) {
                 benchmarkStore.record(result.model, result)
@@ -291,9 +352,12 @@ class LocalApiServer(
                     put("mobilecore", mobileCoreMetadata)
                 }.toString(2))
             }
+        } catch (e: ApiRequestException) {
+            Log.e(logTag, "chat_failed code=${e.failureCode.wireValue} type=${e.javaClass.simpleName}")
+            apiError(e.failureCode, e.publicMessage)
         } catch (e: Exception) {
-            Log.e(logTag, "Chat request failed", e)
-            badRequest(e.message ?: "invalid request")
+            Log.e(logTag, "chat_failed code=invalid_request type=${e.javaClass.simpleName}")
+            apiError(ApiFailureCode.INVALID_REQUEST, "invalid request")
         }
     }
 
@@ -309,7 +373,22 @@ class LocalApiServer(
             }
 
             if (model.isBlank()) {
-                return badRequest("未找到 GGUF 模型。请先在应用内导入或下载模型。")
+                return apiError(ApiFailureCode.ARTIFACT_MISSING, "required model artifact is missing")
+            }
+
+            val modelFile = runCatching { File(model).canonicalFile }.getOrElse {
+                return apiError(ApiFailureCode.ARTIFACT_MISSING, "required model artifact is missing")
+            }
+            val allowedModelRoots = modelManager.modelDirectories().mapNotNull { directory ->
+                runCatching { directory.canonicalFile }.getOrNull()
+            }
+            if (!modelFile.isFile ||
+                modelFile.extension.lowercase() != "gguf" ||
+                allowedModelRoots.none { root ->
+                    modelFile == root || modelFile.path.startsWith(root.path + File.separator)
+                }
+            ) {
+                return apiError(ApiFailureCode.ARTIFACT_MISSING, "required model artifact is missing")
             }
 
             val options = LoadOptions(
@@ -317,21 +396,44 @@ class LocalApiServer(
                 threads = request.optInt("threads", 4),
                 gpuLayers = request.optInt("gpu_layers", 0)
             )
-            val result = backend.loadModel(model, options)
+            val result = backend.loadModel(modelFile.absolutePath, options)
+            if (!result.ok) {
+                return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
+            }
 
             okResponse(
                 JSONObject().apply {
                     put("ok", result.ok)
                     put("model", result.modelId)
-                    put("path", model)
                     put("load_time_ms", result.loadTimeMs)
                     put("memory_used_mb", result.memoryUsedMb)
                     put("backend", backend.backendInfo().id)
                 }.toString(2)
             )
         } catch (e: Exception) {
-            badRequest(e.message ?: "model load failed")
+            Log.e(logTag, "model_load_failed code=model_load_failed type=${e.javaClass.simpleName}")
+            apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
         }
+    }
+
+    private fun onOmniInstall(session: IHTTPSession): Response {
+        return runCatching {
+            val body = parseBody(session)
+            if (body.toByteArray(Charsets.UTF_8).size > MAX_CONTROL_REQUEST_BYTES) {
+                return apiError(ApiFailureCode.INVALID_REQUEST, "control request exceeds the configured limit")
+            }
+            omniController.install(JSONObject(body))
+        }.fold(
+            onSuccess = { result -> omniResult(result, acceptedStatus = result.accepted) },
+            onFailure = { apiError(ApiFailureCode.INVALID_REQUEST, "invalid install request") },
+        )
+    }
+
+    private fun onOmniLoad(session: IHTTPSession): Response {
+        return runCatching { omniController.load(JSONObject(parseBody(session))) }.fold(
+            onSuccess = { result -> omniResult(result) },
+            onFailure = { apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load") },
+        )
     }
 
     private fun parseBody(session: IHTTPSession): String {
@@ -636,17 +738,6 @@ class LocalApiServer(
         return payload.toString(2)
     }
 
-    private fun buildHealth(info: BackendInfo): String {
-        val payload = JSONObject()
-        payload.put("status", "ok")
-        payload.put("service", "mobilecore")
-        payload.put("version", apiVersion)
-        payload.put("model_loaded", backend.isModelLoaded())
-        payload.put("active_model", backend.metrics().activeModel)
-        payload.put("backend", info.id)
-        return payload.toString(2)
-    }
-
     private fun benchmarkSignaturePayload(model: String, result: ai.mobilecore.runtime.ChatResult, created: Long): String {
         return listOf(
             "mobilecore-benchmark-v1",
@@ -674,7 +765,7 @@ class LocalApiServer(
             response.addHeader("Access-Control-Allow-Origin", origin)
             response.addHeader("Vary", "Origin")
         }
-        response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        response.addHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         response.addHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, X-MobileCore-Client")
         response.addHeader("Access-Control-Allow-Private-Network", "true")
         response.addHeader("Access-Control-Max-Age", "86400")
@@ -689,19 +780,28 @@ class LocalApiServer(
             JSONObject(mapOf("error" to mapOf("message" to "unauthorized"))).toString()
         )
 
-    private fun badRequest(msg: String): Response =
-        newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
-            JSONObject(mapOf("error" to mapOf("message" to msg, "code" to "invalid_request"))).toString()
+    private fun apiError(code: ApiFailureCode, message: String): Response =
+        newFixedLengthResponse(
+            Response.Status.BAD_REQUEST,
+            "application/json",
+            OpenAiApiError.json(code, message),
         )
-}
 
-private fun JSONArray.toChatMessages(): List<ChatMessage> {
-    val messages = ArrayList<ChatMessage>(length())
-    for (i in 0 until length()) {
-        val item = optJSONObject(i) ?: continue
-        val role = item.optString("role", "user")
-        val content = item.optString("content", "")
-        messages.add(ChatMessage(role = role, content = content))
+    private fun omniResult(result: OmniControllerResult, acceptedStatus: Boolean = false): Response {
+        val status = when {
+            !result.accepted -> Response.Status.BAD_REQUEST
+            acceptedStatus -> Response.Status.ACCEPTED
+            else -> Response.Status.OK
+        }
+        return newFixedLengthResponse(status, "application/json", result.body.toString(2))
     }
-    return messages
+
+    fun cancelBackgroundOperations() {
+        omniController.cancel()
+    }
+
+    private companion object {
+        const val MAX_CHAT_REQUEST_BYTES = 36L * 1024L * 1024L
+        const val MAX_CONTROL_REQUEST_BYTES = 32 * 1024
+    }
 }

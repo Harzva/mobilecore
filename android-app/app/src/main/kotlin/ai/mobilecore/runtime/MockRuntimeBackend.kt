@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.SystemClock
 import org.json.JSONObject
 
-class MockRuntimeBackend(private val context: Context) : RuntimeBackend {
+class MockRuntimeBackend(private val context: Context) : RuntimeBackend, MultimodalRuntimeBackend {
     private var activeModel: String? = null
     private var lastMetrics: RuntimeMetrics = RuntimeMetrics(
         activeModel = null,
@@ -105,6 +105,45 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend {
         return result.message.split(" ").withIndex().asSequence().map { (idx, word) ->
             ChatToken(index = idx, content = "$word ")
         }
+    }
+
+    override fun mediaChat(
+        modelId: String,
+        mediaPath: String,
+        mediaType: String,
+        prompt: String,
+        maxTokens: Int,
+    ): ChatResult {
+        val startedAt = SystemClock.elapsedRealtime()
+        val modality = when (mediaType) {
+            RuntimeBridge.MtmdInputModality.IMAGE.wireName -> RuntimeBridge.MtmdInputModality.IMAGE
+            RuntimeBridge.MtmdInputModality.AUDIO.wireName -> RuntimeBridge.MtmdInputModality.AUDIO
+            else -> throw MultimodalRuntimeException("unsupported_modality")
+        }
+        val rawAnswer = RuntimeBridge.mediaChat(modelId, mediaPath, modality, prompt, maxTokens)
+        val payload = runCatching { JSONObject(rawAnswer) }.getOrNull()
+        if (payload != null && !payload.optBoolean("ok", true)) {
+            throw MultimodalRuntimeException(
+                payload.optString("code", "model_load_failed").ifBlank { "model_load_failed" }
+            )
+        }
+        val elapsed = (SystemClock.elapsedRealtime() - startedAt).toInt()
+        val options = ChatOptions(model = modelId, maxTokens = maxTokens)
+        val result = parseNativeChatResult(rawAnswer, prompt, options, elapsed)
+        lastMetrics = RuntimeMetrics(
+            activeModel = activeModel ?: result.model,
+            backend = backendInfo().id,
+            promptEvalMs = result.promptEvalMs,
+            firstTokenMs = result.firstTokenMs,
+            decodeMs = result.decodeMs,
+            totalMs = result.totalMs,
+            decodeTokensPerSecond = result.decodeTokensPerSecond,
+            memoryPeakMb = result.memoryPeakMb,
+            promptTokens = result.promptTokens,
+            completionTokens = result.completionTokens,
+            totalTokens = result.totalTokens,
+        )
+        return result
     }
 
     override fun metrics(): RuntimeMetrics {

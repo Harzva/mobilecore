@@ -98,4 +98,18 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    providers.gradleProperty("cifar10TestBatch").orNull?.let { path ->
+        systemProperty("cifar10.testBatch", path)
+    }
+    providers.gradleProperty("oxfordPetsTestSplit").orNull?.let { path ->
+        systemProperty("oxfordPets.testSplit", path)
+    }
+    providers.gradleProperty("oxfordPetsImages").orNull?.let { path ->
+        systemProperty("oxfordPets.images", path)
+    }
 }

@@ -17,15 +17,7 @@ MobileCore 对外暴露 OpenAI-compatible API，使 MobileCode、第三方 App�
 http://127.0.0.1:8080/v1
 ```
 
-默认只监听 localhost。
-
-LAN 模式示例：
-
-```text
-http://<phone-ip>:8080/v1
-```
-
-LAN 模式必须由用户主动开启。
+当前版本只监听 localhost，不提供 LAN 模式。多模态媒体、token 和请求正文不得通过非 loopback 地址暴露。
 
 ## 3. 鉴权
 
@@ -77,6 +69,8 @@ Authorization: Bearer local
 ```
 
 ## 5. POST /v1/chat/completions
+
+`messages[].content` 继续接受字符串，也可使用 OpenAI structured content 数组。当前只支持 `text`、`image_url`、`input_audio`，且每个请求最多一个图片或音频；输出仅为文本。远程 `http(s)` 媒体、非 app-controlled URI、路径穿越、超限 MIME/大小/音频时长均会以稳定错误码拒绝。video input 与 audio output 返回 `unsupported_modality`。
 
 ### 非流式请求
 
@@ -165,12 +159,33 @@ GET /health
 {
   "status": "ok",
   "service": "mobilecore",
-  "version": "0.1.0",
+  "version": "0.1.3-rc2",
   "model_loaded": true,
-  "active_model": "qwen3-4b-q4_k_m",
-  "backend": "llama.cpp"
+  "active_model": "Qwen2.5-Omni-3B-Q4_K_M",
+  "quantization": "Q4_K_M",
+  "runtime": "llama.cpp/libmtmd",
+  "backend": "cpu",
+  "capabilities": {
+    "text_input": true,
+    "image_input": true,
+    "audio_input": true,
+    "video_input": false,
+    "text_output": true,
+    "audio_output": false
+  },
+  "artifacts": {
+    "main": {"digest_algorithm":"sha256","digest":"<expected>","present":true,"verified":true},
+    "mmproj": {"digest_algorithm":"sha256","digest":"<expected>","present":true,"verified":true}
+  },
+  "preflight": {
+    "memory": {"available_bytes":0,"required_bytes":0,"ok":true},
+    "storage": {"available_bytes":0,"required_bytes":0,"ok":true},
+    "ok": true
+  }
 }
 ```
+
+能力布尔值表示当前加载 runtime 的能力，不是模型卡能力。GGUF 路线不得把 video 或 speech output 标为可用。
 
 ## 7. GET /metrics
 
@@ -286,7 +301,16 @@ invalid_request
 unauthorized
 backend_crashed
 service_busy
+unsupported_modality
+artifact_missing
+checksum_mismatch
+insufficient_memory
+insufficient_storage
+media_too_large
+cancelled
 ```
+
+Qwen2.5-Omni 双 artifact 的 `status/install/cancel/verify/load/uninstall` 契约见 `docs/mobilecode-local-multimodal-contract.md`；正式 OpenAPI 位于 `src/mobilecore-api/openai-compatible-api-v0.1.yaml`。
 
 ## 10. MobileCode 接入示例
 
