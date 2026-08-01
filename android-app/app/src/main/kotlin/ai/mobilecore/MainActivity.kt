@@ -49,7 +49,6 @@ import ai.mobilecore.ui.G2dValidationScreen
 import ai.mobilecore.ui.HomeScreenPresenter
 import ai.mobilecore.ui.IconBadgeView
 import ai.mobilecore.ui.Palette
-import ai.mobilecore.ui.PushBoxMarkView
 import ai.mobilecore.ui.ResultsScreenPresenter
 import ai.mobilecore.ui.StandardModelDownloadPhase
 import ai.mobilecore.ui.TuiMaCircularProgressView
@@ -83,6 +82,7 @@ import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -242,11 +242,12 @@ class MainActivity : Activity() {
 
         val pageRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Palette.background)
+            background = ambientPageBackground()
         }
         rootScrollView = ScrollView(this).apply {
-            setBackgroundColor(Palette.background)
+            setBackgroundColor(Color.TRANSPARENT)
             isFillViewport = true
+            isVerticalScrollBarEnabled = false
         }
         contentRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -320,7 +321,19 @@ class MainActivity : Activity() {
             bottomNavHost.removeAllViews()
             bottomNavHost.addView(buildBottomNavigation())
         }
-        rootScrollView.post { rootScrollView.scrollTo(0, targetScrollY) }
+        rootScrollView.post {
+            rootScrollView.scrollTo(0, targetScrollY)
+            if (resetScroll) {
+                contentRoot.animate().cancel()
+                contentRoot.alpha = 0f
+                contentRoot.translationY = dp(8).toFloat()
+                contentRoot.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(180L)
+                    .start()
+            }
+        }
     }
 
     private fun setTab(tab: AppTab) {
@@ -334,18 +347,20 @@ class MainActivity : Activity() {
 
     private fun renderHomeTab(content: LinearLayout) {
         content.addView(buildHeader())
-        content.addView(space(14))
+        content.addView(space(28))
+        content.addView(buildHomeIntro())
+        content.addView(space(16))
         content.addView(buildHomePrimaryCard())
         if (requiredBenchmarkModel() == null) {
-            content.addView(space(14))
+            content.addView(space(12))
             content.addView(buildRequiredModelDownloadCard())
         }
-        content.addView(space(18))
-        content.addView(sectionTitle("测试准备", "自动检查，无需手动启动服务"))
+        content.addView(space(12))
         content.addView(buildHomeReadinessCard())
-        content.addView(space(18))
-        content.addView(sectionTitle("最近成绩", "双层分数"))
+        content.addView(space(12))
         content.addView(buildHomeLatestResultCard())
+        content.addView(space(12))
+        content.addView(buildLocalPrivacyRow())
     }
 
     private fun renderModelsTab(content: LinearLayout) {
@@ -370,22 +385,19 @@ class MainActivity : Activity() {
 
     private fun renderTestTab(content: LinearLayout) {
         content.addView(buildCompactHeader("跑分", "本机 AI 性能测试", "play"))
-        content.addView(space(12))
-        content.addView(sectionTitle("TuiMa 跑分", "选择模式，完成后生成双层分数"))
+        content.addView(space(18))
         content.addView(buildTestChatCard())
         if (requiredBenchmarkModel() == null) {
-            content.addView(space(14))
+            content.addView(space(12))
             content.addView(buildRequiredModelDownloadCard())
         }
-        content.addView(space(18))
-        content.addView(sectionTitle("跑分须知", "保证结果可比较"))
+        content.addView(space(12))
         content.addView(buildBenchmarkRequirementsCard())
     }
 
     private fun renderResultsTab(content: LinearLayout) {
         content.addView(buildCompactHeader("结果", "双层分数与性能解释", "gauge"))
-        content.addView(space(12))
-        content.addView(sectionTitle("跑分结果", "本机保存，不上传原始内容"))
+        content.addView(space(18))
         content.addView(buildLatestBenchmarkResultCard())
         content.addView(space(18))
         content.addView(sectionTitle("历史记录", "最近 10 次 v2 测试"))
@@ -630,30 +642,34 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(2), 0, dp(2))
-            addView(
-                PushBoxMarkView(context),
-                LinearLayout.LayoutParams(dp(64), dp(50)).apply { marginEnd = dp(8) }
-            )
+            minimumHeight = dp(58)
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(tuimaWordmark(compact = true))
-                    addView(space(4))
-                    addView(label("推嘛 · 手机本地模型", 11f, Palette.muted, Typeface.NORMAL))
-                    addView(space(5))
-                    runtimeChipText = label("本机就绪", 11f, Palette.mintDark, Typeface.BOLD)
-                    addView(
-                        chip(runtimeChipText, Palette.mintPale, Palette.mint),
-                        LinearLayout.LayoutParams(
-                            ViewGroup.LayoutParams.WRAP_CONTENT,
-                            dp(30)
-                        )
-                    )
+                    addView(label("TuiMa", 24f, Palette.deepInk, Typeface.BOLD).apply { letterSpacing = -0.02f })
+                    addView(space(2))
+                    addView(label("推嘛", 13f, Palette.mintDark, Typeface.BOLD))
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
-            addView(notificationBubble(), LinearLayout.LayoutParams(dp(42), dp(42)))
+            runtimeChipText = label("✓  本机就绪", 11.5f, Palette.mintDark, Typeface.BOLD)
+            addView(
+                chip(runtimeChipText, Palette.mintPale, Palette.mint),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+            )
+            contentDescription = "TuiMa 推嘛，本机就绪"
+        }
+    }
+
+    private fun buildHomeIntro(): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label("你的手机，", 28f, Palette.deepInk, Typeface.BOLD))
+            addView(space(2))
+            addView(label("能跑多快？", 28f, Palette.deepInk, Typeface.BOLD))
+            addView(space(8))
+            addView(label("统一模型与提示词，测出真实端侧 AI 性能。", 13f, Palette.muted, Typeface.NORMAL))
+            contentDescription = "你的手机能跑多快？统一模型与提示词，测出真实端侧 AI 性能"
         }
     }
 
@@ -662,19 +678,19 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(TuiMaTheme.compactHeaderHeightDp)
             addView(
-                IconBadgeView(context, icon, Palette.mintDark),
-                LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(12) }
-            )
-            addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label(title, 19f, Palette.deepInk, Typeface.BOLD))
+                    addView(label(title, 22f, Palette.deepInk, Typeface.BOLD))
                     addView(space(4))
-                    addView(label(subtitle, 11.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 1 })
+                    addView(label(subtitle, 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 1 })
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
-            addView(label("TuiMa", 13f, Palette.blue, Typeface.BOLD))
+            tag = icon
+            addView(
+                chip(label("本机", 11f, Palette.mintDark, Typeface.BOLD), Palette.mintPale, Palette.mint),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
+            )
             contentDescription = "$title，$subtitle"
         }
     }
@@ -688,77 +704,88 @@ class MainActivity : Activity() {
         val canonical = latestScore?.optInt("canonical")
 
         return surfaceCard(Palette.mint, gradient = true) {
-            addView(label("你的手机，能跑多快？", 23f, Palette.deepInk, Typeface.BOLD))
-            addView(space(8))
-            addView(
-                label(
-                    "使用统一模型与提示词，在本机完成五维 AI 性能测试。",
-                    14f,
-                    tint(Palette.ink, 0.68f),
-                    Typeface.NORMAL
-                ).apply {
-                    maxLines = 2
-                    setLineSpacing(dp(2).toFloat(), 1f)
-                }
-            )
-            addView(space(18))
             if (headline != null && canonical != null) {
                 addView(
                     LinearLayout(context).apply {
-                        gravity = Gravity.BOTTOM
-                        addView(label(formatHeadlineScore(headline), 38f, Palette.blue, Typeface.BOLD))
-                        addView(label("  TuiMa", 15f, Palette.deepInk, Typeface.BOLD).apply { setPadding(0, 0, 0, dp(5)) })
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            LinearLayout(context).apply {
+                                orientation = LinearLayout.VERTICAL
+                                addView(
+                                    LinearLayout(context).apply {
+                                        gravity = Gravity.BOTTOM
+                                        addView(label(formatHeadlineScore(headline), 40f, Palette.blue, Typeface.BOLD))
+                                        addView(label("  TuiMa", 14f, Palette.deepInk, Typeface.BOLD).apply { setPadding(0, 0, 0, dp(5)) })
+                                    }
+                                )
+                                addView(space(5))
+                                addView(label("标准分 $canonical / 1000", 13.5f, Palette.muted, Typeface.BOLD))
+                            },
+                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        )
+                        addView(IconBadgeView(context, "gauge", Palette.blue), LinearLayout.LayoutParams(dp(58), dp(58)).apply { marginStart = dp(10) })
                     }
                 )
-                addView(label("标准分 $canonical / 1000 · 最近一次有效成绩", 13f, Palette.muted, Typeface.NORMAL))
             } else if (!hasModel) {
-                addView(label("还差一个标准模型", 20f, Palette.deepInk, Typeface.BOLD))
+                addView(cardHeader("标准模型尚未准备", "Qwen2.5 0.5B · 约 469 MB", "download", Palette.amber, "需下载", Palette.amber))
                 addView(space(4))
-                addView(label("下载完成后即可开始标准测试", 13f, Palette.muted, Typeface.NORMAL))
             } else {
-                addView(label("尚未生成跑分", 22f, Palette.deepInk, Typeface.BOLD))
-                addView(space(4))
-                addView(label("第一次建议使用标准模式", 13f, Palette.muted, Typeface.NORMAL))
+                addView(cardHeader("等待第一次成绩", "建议从标准模式开始，结果可用于同规格对比", "gauge", Palette.blue, "已就绪", Palette.mintDark))
             }
 
-            if (!hasModel && !state.isRunning) {
-                addView(space(2))
-            } else {
-                addView(space(18))
-                val actionText = when {
-                    state.isRunning -> "查看跑分进度"
-                    latestScore != null -> "再测一次"
-                    else -> "开始标准测试"
-                }
-                addView(
-                    pillButton(actionText, Palette.mintDark, Palette.mint) {
-                        if (state.isRunning) {
-                            setTab(AppTab.TEST)
-                        } else {
+            addView(space(18))
+            val actionText = when {
+                state.isRunning -> "查看跑分进度"
+                !hasModel -> "下载标准模型 · 469 MB"
+                latestScore != null -> "再测一次"
+                else -> "开始标准测试"
+            }
+            addView(
+                pillButton(actionText, Palette.mintDark, Palette.mint) {
+                    when {
+                        state.isRunning -> setTab(AppTab.TEST)
+                        !hasModel -> downloadRequiredBenchmarkModel()
+                        else -> {
                             selectedBenchmarkProfile = BenchmarkProfile.STANDARD
                             setTab(AppTab.TEST)
                         }
-                    }.apply {
-                        contentDescription = actionText
-                    },
-                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52))
-                )
-            }
+                    }
+                }.apply { contentDescription = actionText },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
+            )
         }
     }
 
     private fun buildHomeReadinessCard(): View {
         val model = requiredBenchmarkModel()
         val telemetry = runCatching { AndroidBenchmarkTelemetry(applicationContext).sample() }.getOrNull()
+        val thermalReady = telemetry?.thermalStatus?.ordinal?.let { it <= ThermalStatus.LIGHT.ordinal } ?: true
         return surfaceCard(Palette.sky) {
-            addView(readinessRow("标准模型", if (model != null) "已就绪" else "需要下载", model != null))
-            addView(space(8))
-            addView(readinessRow("电量", telemetry?.let { "${it.batteryPercent}%" } ?: "检测时读取", (telemetry?.batteryPercent ?: 30) >= 30))
-            addView(space(8))
-            val thermalReady = telemetry?.thermalStatus?.ordinal?.let { it <= ThermalStatus.LIGHT.ordinal } ?: true
-            addView(readinessRow("设备温度", if (thermalReady) "适合测试" else "建议冷却", thermalReady))
-            addView(space(10))
-            addView(label("开始测试后会自动校验存储、模型完整性和本机服务。", 12.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(readinessMetric("模型", if (model != null) "已就绪" else "需下载", model != null), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginEnd = dp(4) })
+                    addView(readinessMetric("电量", telemetry?.let { "${it.batteryPercent}%" } ?: "检测中", (telemetry?.batteryPercent ?: 30) >= 30), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    addView(readinessMetric("温控", if (thermalReady) "适合" else "需冷却", thermalReady), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginStart = dp(4) })
+                }
+            )
+            addView(space(12))
+            addView(softInfoBlock("开始后自动校验存储、模型完整性与本机服务，无需手动配置。", Palette.sky, maxLines = 2))
+        }
+    }
+
+    private fun readinessMetric(title: String, value: String, ready: Boolean): View {
+        val accent = if (ready) Palette.mintDark else Palette.amber
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = rounded(tint(accent, 0.08f), tint(accent, 0.22f), 7f)
+            addView(label(if (ready) "✓" else "!", 16f, accent, Typeface.BOLD))
+            addView(space(2))
+            addView(label(value, 12.5f, accent, Typeface.BOLD).apply { maxLines = 1 })
+            addView(space(2))
+            addView(label(title, 10.2f, Palette.muted, Typeface.NORMAL))
+            contentDescription = "$title，$value"
         }
     }
 
@@ -852,16 +879,38 @@ class MainActivity : Activity() {
 
     private fun buildHomeLatestResultCard(): View {
         val latest = latestScoredBenchmarkReport()
-        val score = latest?.optJSONObject("score")
+        val snapshot = latest?.let(ResultsScreenPresenter::parse)
         return surfaceCard(Palette.lavender) {
-            if (latest == null || score == null) {
+            if (latest == null || snapshot == null) {
                 addView(cardHeader("还没有成绩", "完成一次测试后在这里查看五维表现", "gauge", Palette.lavender))
                 addView(space(12))
                 addView(chipButton("前往跑分", false) { setTab(AppTab.TEST) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
             } else {
-                addView(cardHeader("${formatHeadlineScore(score.optInt("headline"))} TuiMa", "标准分 ${score.optInt("canonical")} / 1000", "gauge", Palette.lavender, if (latest.optBoolean("valid")) "有效" else "无效"))
+                val insight = ResultsScreenPresenter.insight(snapshot)
+                addView(cardHeader("能力洞察 · ${insight.rating}", insight.summary, "gauge", Palette.lavender, "${snapshot.canonicalScore}/1000", Palette.mintDark))
                 addView(space(12))
-                addView(chipButton("查看完整结果", false) { setTab(AppTab.RESULTS) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                addView(softInfoBlock(insight.recommendation, Palette.lavender, maxLines = 3))
+                addView(space(12))
+                addView(chipButton("查看五维结果  →", false) { setTab(AppTab.RESULTS) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+            }
+        }
+    }
+
+    private fun buildLocalPrivacyRow(): View {
+        return LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(dp(4), 0, dp(4), 0)
+            addView(IconBadgeView(context, "chip", Palette.mintDark), LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginEnd = dp(10) })
+            addView(label("离线运行 · 数据仅留本机", 12.5f, Palette.muted, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label("›", 22f, Palette.muted, Typeface.NORMAL))
+            isClickable = true
+            isFocusable = true
+            background = ripple(rounded(Color.TRANSPARENT, Color.TRANSPARENT, 7f), Palette.mint)
+            contentDescription = "离线运行，数据仅留本机。查看隐私与本机数据"
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                setTab(AppTab.SETTINGS)
             }
         }
     }
@@ -897,12 +946,12 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = if (gradient) {
-                roundedGradient(intArrayOf(Palette.surface, tint(accent, 0.10f), Palette.blueWash), 18f)
+                roundedGradient(intArrayOf(Palette.surface, tint(accent, 0.10f), Palette.blueWash), TuiMaTheme.cardRadiusDp)
             } else {
-                rounded(Palette.surface, tint(accent, 0.18f), 18f)
+                rounded(Palette.surface, tint(accent, 0.18f), TuiMaTheme.cardRadiusDp)
             }
-            elevation = dp(2).toFloat()
-            setPadding(dp(16), dp(16), dp(16), dp(14))
+            elevation = dp(1).toFloat()
+            setPadding(dp(16), dp(17), dp(16), dp(15))
             block()
         }
     }
@@ -921,10 +970,10 @@ class MainActivity : Activity() {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label(title, 14.2f, tint(Palette.ink, 0.82f), Typeface.BOLD).apply { maxLines = 1 })
+                    addView(label(title, 15.2f, tint(Palette.ink, 0.88f), Typeface.BOLD).apply { maxLines = 1 })
                     if (caption.isNotBlank()) {
                         addView(space(3))
-                        addView(label(caption, 11.6f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+                        addView(label(caption, 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
                     }
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -1750,65 +1799,76 @@ class MainActivity : Activity() {
     private fun buildTestChatCard(): View {
         val state = benchmarkUiStateMachine.state
         val activeProfile = state.profile ?: selectedBenchmarkProfile
-        return surfaceCard(Palette.lavender, gradient = true) {
-            addView(cardHeader("本机 AI 性能测试", "标准模型与提示词固定，评分算法保持不变", "play", Palette.lavender, "v2"))
-            addView(space(16))
-            addView(label("测试模式", 14f, Palette.ink, Typeface.BOLD))
-            addView(space(8))
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    BenchmarkProfile.entries.forEachIndexed { index, profile ->
-                        addView(
-                            benchmarkProfileOption(profile, activeProfile == profile, state.isRunning),
-                            LinearLayout.LayoutParams(0, dp(72), 1f).apply {
-                                if (index > 0) marginStart = dp(4)
-                                if (index < BenchmarkProfile.entries.lastIndex) marginEnd = dp(4)
+                surfaceCard(Palette.mint) {
+                    addView(label("测试模式", 13f, Palette.muted, Typeface.BOLD))
+                    addView(space(10))
+                    addView(
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            BenchmarkProfile.entries.forEachIndexed { index, profile ->
+                                addView(
+                                    benchmarkProfileOption(profile, activeProfile == profile, state.isRunning),
+                                    LinearLayout.LayoutParams(0, dp(74), 1f).apply {
+                                        if (index > 0) marginStart = dp(4)
+                                        if (index < BenchmarkProfile.entries.lastIndex) marginEnd = dp(4)
+                                    }
+                                )
                             }
+                        }
+                    )
+                }
+            )
+            addView(space(12))
+            addView(
+                surfaceCard(Palette.lavender, gradient = true) {
+                    addView(cardHeader("本机 AI 性能测试", "统一模型、统一提示词、评分算法固定", "play", Palette.lavender, "v2"))
+                    addView(space(14))
+                    addView(buildBenchmarkStatePanel(state))
+                    addView(space(14))
+                    when {
+                        state is BenchmarkUiState.NeedsModel -> addView(
+                            pillButton("下载标准模型 · 469 MB", Palette.mintDark, Palette.mint) { downloadRequiredBenchmarkModel() },
+                            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
                         )
+                        state.isRunning -> {
+                            addView(
+                                softInfoBlock("测试正在运行，请保持应用在前台。", Palette.sky, maxLines = 2).apply {
+                                    gravity = Gravity.CENTER
+                                    contentDescription = "跑分进行中，请保持应用在前台"
+                                },
+                                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
+                            )
+                            if (state !is BenchmarkUiState.Cancelling) {
+                                addView(space(8))
+                                addView(chipButton("取消本次跑分", false) { confirmCancelBenchmark() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                            }
+                        }
+                        state is BenchmarkUiState.Completed -> addView(
+                            pillButton("查看本次结果", Palette.mintDark, Palette.mint) { setTab(AppTab.RESULTS) },
+                            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
+                        )
+                        else -> {
+                            val actionText = if (state is BenchmarkUiState.Blocked || state is BenchmarkUiState.Failed) "重新检测" else "开始${benchmarkProfileName(selectedBenchmarkProfile)}"
+                            addView(
+                                pillButton(actionText, Palette.mintDark, Palette.mint) { runBenchmark(selectedBenchmarkProfile) },
+                                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
+                            )
+                        }
                     }
                 }
             )
-            addView(space(16))
-            addView(buildBenchmarkStatePanel(state))
-            addView(space(14))
-
-            when {
-                state is BenchmarkUiState.NeedsModel -> {
-                    addView(
-                        pillButton("下载标准模型（约 469 MB）", Palette.mintDark, Palette.mint) { downloadRequiredBenchmarkModel() },
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52))
-                    )
-                }
-                state.isRunning -> {
-                    val runningButton = pillButton("跑分进行中", Palette.sky, Palette.blue) { }.apply {
-                        isEnabled = false
-                        alpha = 0.55f
-                        contentDescription = "跑分进行中，按钮暂不可用"
-                    }
-                    addView(runningButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-                    if (state !is BenchmarkUiState.Cancelling) {
-                        addView(space(8))
-                        addView(chipButton("取消本次跑分", false) { confirmCancelBenchmark() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-                    }
-                }
-                state is BenchmarkUiState.Completed -> {
-                    addView(pillButton("查看本次结果", Palette.mintDark, Palette.mint) { setTab(AppTab.RESULTS) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-                }
-                else -> {
-                    val actionText = if (state is BenchmarkUiState.Blocked || state is BenchmarkUiState.Failed) "重新检测" else "开始${benchmarkProfileName(selectedBenchmarkProfile)}"
-                    addView(pillButton(actionText, Palette.mintDark, Palette.mint) { runBenchmark(selectedBenchmarkProfile) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-                }
-            }
         }
     }
 
     private fun benchmarkProfileOption(profile: BenchmarkProfile, selected: Boolean, disabled: Boolean): View {
         val accent = if (selected) Palette.mintDark else Palette.muted
         val caption = when (profile) {
-            BenchmarkProfile.QUICK -> "1 次计分"
+            BenchmarkProfile.QUICK -> "预览"
             BenchmarkProfile.STANDARD -> "3 次 · 可入榜"
-            BenchmarkProfile.STRESS -> "10 次持续"
+            BenchmarkProfile.STRESS -> "持续测试"
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1837,12 +1897,14 @@ class MainActivity : Activity() {
         val screen = benchmarkScreenUi(state)
         val accent = when (state) {
             is BenchmarkUiState.Completed, BenchmarkUiState.Ready -> Palette.mint
-            is BenchmarkUiState.Blocked, is BenchmarkUiState.Failed, is BenchmarkUiState.NeedsModel -> Palette.lavender
+            is BenchmarkUiState.Blocked, is BenchmarkUiState.Failed -> Palette.amber
+            is BenchmarkUiState.NeedsModel -> Palette.lavender
+            BenchmarkUiState.Cancelled -> Palette.danger
             else -> Palette.sky
         }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(accent, 0.09f), tint(accent, 0.24f), 14f)
+            background = rounded(tint(accent, 0.08f), tint(accent, 0.24f), 7f)
             setPadding(dp(14), dp(14), dp(14), dp(14))
             addView(label(screen.title, 16f, Palette.ink, Typeface.BOLD))
             addView(space(5))
@@ -1850,6 +1912,10 @@ class MainActivity : Activity() {
                 maxLines = 4
                 setLineSpacing(dp(2).toFloat(), 1f)
             })
+            if (state !is BenchmarkUiState.NeedsModel && state !is BenchmarkUiState.Blocked && state !is BenchmarkUiState.Failed && state != BenchmarkUiState.Cancelled) {
+                addView(space(14))
+                addView(buildBenchmarkStepIndicator(state))
+            }
             if (state.isRunning || state is BenchmarkUiState.Completed) {
                 addView(space(12))
                 addView(
@@ -1893,6 +1959,44 @@ class MainActivity : Activity() {
                 }
             }
             contentDescription = "${screen.title}。${screen.message}"
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+    }
+
+    private fun buildBenchmarkStepIndicator(state: BenchmarkUiState): View {
+        val activeStep = when (state) {
+            is BenchmarkUiState.Checking -> 0
+            is BenchmarkUiState.LoadingModel -> 1
+            is BenchmarkUiState.WarmingUp -> 2
+            is BenchmarkUiState.Measuring, is BenchmarkUiState.Cooling, is BenchmarkUiState.Cancelling -> 3
+            is BenchmarkUiState.Completed -> 4
+            else -> -1
+        }
+        val labels = listOf("检查", "模型", "预热", "计分", "结果")
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            labels.forEachIndexed { index, title ->
+                val reached = activeStep >= index
+                val current = activeStep == index
+                val accent = if (reached || current) Palette.mintDark else Palette.muted
+                addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        gravity = Gravity.CENTER
+                        addView(
+                            label(if (activeStep > index) "✓" else "${index + 1}", 11f, if (reached) Palette.background else Palette.muted, Typeface.BOLD).apply {
+                                gravity = Gravity.CENTER
+                                background = rounded(if (reached) Palette.mint else tint(Palette.muted, 0.10f), tint(accent, 0.28f), 14f)
+                            },
+                            LinearLayout.LayoutParams(dp(28), dp(28))
+                        )
+                        addView(space(5))
+                        addView(label(title, 10f, accent, if (current) Typeface.BOLD else Typeface.NORMAL))
+                    },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                )
+            }
+            contentDescription = if (activeStep >= 0) "当前阶段 ${activeStep + 1}，${labels[activeStep]}" else "等待开始，共五个阶段"
         }
     }
 
@@ -1922,13 +2026,30 @@ class MainActivity : Activity() {
 
     private fun buildBenchmarkRequirementsCard(): View {
         return surfaceCard(Palette.sky) {
-            addView(readinessRow("电量至少 30%", "测试时不要充电", true))
-            addView(space(6))
-            addView(readinessRow("设备保持凉爽", "温控正常", true))
-            addView(space(6))
-            addView(readinessRow("保持应用在前台", "避免中断", true))
+            addView(label("测试要求", 13f, Palette.muted, Typeface.BOLD))
             addView(space(10))
-            addView(label("快速模式用于预览；只有标准模式具备榜单资格。压力模式用于观察持续性能。", 12.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
+            addView(
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    addView(requirementMetric("电量", "≥ 30%"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(4) })
+                    addView(requirementMetric("温控", "保持凉爽"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    addView(requirementMetric("运行", "保持前台"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4) })
+                }
+            )
+            addView(space(10))
+            addView(label("标准模式具备榜单资格；快速模式用于预览，压力模式观察持续性能。", 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+        }
+    }
+
+    private fun requirementMetric(title: String, value: String): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            background = rounded(tint(Palette.sky, 0.06f), tint(Palette.sky, 0.18f), 7f)
+            addView(label(value, 12f, Palette.deepInk, Typeface.BOLD).apply { maxLines = 1 })
+            addView(space(3))
+            addView(label(title, 10f, Palette.muted, Typeface.NORMAL))
+            contentDescription = "$title，$value"
         }
     }
 
@@ -2208,29 +2329,33 @@ class MainActivity : Activity() {
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
-                    addView(label(formatHeadlineScore(snapshot.headlineScore), 48f, Palette.blue, Typeface.BOLD))
-                    addView(label("TuiMa", 17f, Palette.deepInk, Typeface.BOLD))
+                    addView(label("本次测试结果", 11f, Palette.muted, Typeface.BOLD).apply { letterSpacing = 0.04f })
+                    addView(space(9))
+                    addView(label(formatHeadlineScore(snapshot.headlineScore), 50f, Palette.blue, Typeface.BOLD).apply { gravity = Gravity.CENTER })
+                    addView(label("TuiMa", 16f, Palette.deepInk, Typeface.BOLD).apply { gravity = Gravity.CENTER })
                     addView(space(7))
-                    addView(label("标准分 ${snapshot.canonicalScore} / 1000", 14f, Palette.mintDark, Typeface.BOLD))
-                    addView(space(8))
+                    addView(label("标准分 ${snapshot.canonicalScore} / 1000", 14f, Palette.mintDark, Typeface.BOLD).apply { gravity = Gravity.CENTER })
+                    addView(space(10))
                     addView(
                         chip(
-                            label(insight.modeHint, 11f, Palette.mintDark, Typeface.BOLD),
+                            label(insight.rating, 15f, Palette.mintDark, Typeface.BOLD),
                             Palette.mintPale,
                             Palette.mint
                         ),
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(38))
                     )
-                    addView(space(7))
+                    addView(space(8))
+                    addView(label(insight.modeHint, 10.8f, Palette.muted, Typeface.BOLD).apply {
+                        gravity = Gravity.CENTER
+                        maxLines = 1
+                    })
+                    addView(space(8))
                     addView(
-                        chip(
-                            label(snapshot.executionLabel, 11f, Palette.blue, Typeface.BOLD),
-                            Palette.blueWash,
-                            Palette.sky
-                        ),
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
+                        chip(label(snapshot.executionLabel, 10.5f, Palette.blue, Typeface.BOLD), Palette.blueWash, Palette.sky),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30))
                     )
-                }
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             )
             addView(space(18))
             addView(buildResultInsightCard(insight))
@@ -2270,9 +2395,9 @@ class MainActivity : Activity() {
     private fun buildResultInsightCard(insight: ai.mobilecore.ui.ResultInsight): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(Palette.sky, 0.09f), tint(Palette.sky, 0.22f), 14f)
+            background = rounded(tint(Palette.sky, 0.08f), tint(Palette.sky, 0.22f), 7f)
             setPadding(dp(14), dp(14), dp(14), dp(14))
-            addView(label("本机 AI 能力：${insight.rating}", 17f, Palette.deepInk, Typeface.BOLD))
+            addView(label("能力解读", 14f, Palette.deepInk, Typeface.BOLD))
             addView(space(7))
             addView(label(insight.summary, 13.5f, Palette.ink, Typeface.NORMAL).apply { maxLines = 2 })
             addView(space(10))
@@ -2414,7 +2539,7 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = rounded(tint(Palette.sky, 0.08f), tint(Palette.sky, 0.20f), 12f)
+            background = rounded(tint(Palette.sky, 0.08f), tint(Palette.sky, 0.20f), 7f)
             addView(label(value, 12.5f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 })
             addView(space(3))
             addView(label(title, 10.5f, Palette.muted, Typeface.NORMAL))
@@ -3534,14 +3659,14 @@ class MainActivity : Activity() {
     private fun buildBottomNavigation(): View {
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER
-            background = rounded(tint(Palette.surface, 0.96f), tint(Palette.sky, 0.16f), 22f)
-            elevation = dp(2).toFloat()
-            setPadding(dp(7), dp(5), dp(7), dp(5))
-            addView(navItem("首页", "home", AppTab.HOME), LinearLayout.LayoutParams(0, dp(56), 1f))
-            addView(navItem("跑分", "play", AppTab.TEST), LinearLayout.LayoutParams(0, dp(56), 1f))
-            addView(navItem("结果", "gauge", AppTab.RESULTS), LinearLayout.LayoutParams(0, dp(56), 1f))
-            addView(navItem("模型", "cube", AppTab.MODELS), LinearLayout.LayoutParams(0, dp(56), 1f))
-            addView(navItem("我的", "person", AppTab.SETTINGS), LinearLayout.LayoutParams(0, dp(56), 1f))
+            background = rounded(tint(Palette.surface, 0.97f), tint(Palette.sky, 0.18f), 16f)
+            elevation = dp(4).toFloat()
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            addView(navItem("首页", "home", AppTab.HOME), LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("跑分", "play", AppTab.TEST), LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("结果", "gauge", AppTab.RESULTS), LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("模型", "cube", AppTab.MODELS), LinearLayout.LayoutParams(0, dp(58), 1f))
+            addView(navItem("我的", "person", AppTab.SETTINGS), LinearLayout.LayoutParams(0, dp(58), 1f))
         }
     }
 
@@ -3554,14 +3679,24 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             background = ripple(
-                if (selected) rounded(tint(Palette.mint, 0.16f), Color.TRANSPARENT, 15f) else rounded(Color.TRANSPARENT, Color.TRANSPARENT, 15f),
+                if (selected) rounded(tint(Palette.mint, 0.11f), Color.TRANSPARENT, 11f) else rounded(Color.TRANSPARENT, Color.TRANSPARENT, 11f),
                 accent
             )
             isClickable = true
             isFocusable = true
             contentDescription = "$title${if (selected) "，已选择" else ""}"
             isSelected = selected
-            setOnClickListener { setTab(tab) }
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                setTab(tab)
+            }
+            addView(
+                View(context).apply {
+                    background = rounded(if (selected) Palette.mintDark else Color.TRANSPARENT, Color.TRANSPARENT, 2f)
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                },
+                LinearLayout.LayoutParams(dp(22), dp(3)).apply { bottomMargin = dp(4) }
+            )
             addView(
                 FrameLayout(context).apply {
                     addView(IconBadgeView(context, icon, accent), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
@@ -3585,8 +3720,17 @@ class MainActivity : Activity() {
     private fun sectionTitle(title: String, subtitle: String): View {
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            addView(label(title, 11.8f, tint(Palette.ink, 0.58f), Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(subtitle, 10.2f, Palette.muted, Typeface.NORMAL).apply { maxLines = 1 })
+            minimumHeight = dp(34)
+            addView(
+                View(context).apply { background = rounded(Palette.mintDark, Color.TRANSPARENT, 2f) },
+                LinearLayout.LayoutParams(dp(3), dp(22)).apply { marginEnd = dp(9) }
+            )
+            addView(label(title, 15.5f, Palette.deepInk, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label(subtitle, 11.2f, Palette.muted, Typeface.NORMAL).apply {
+                maxLines = 1
+                gravity = Gravity.END
+            })
+            contentDescription = "$title，$subtitle"
         }
     }
 
@@ -3604,7 +3748,10 @@ class MainActivity : Activity() {
             )
             isClickable = true
             isFocusable = true
-            setOnClickListener { onClick() }
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onClick()
+            }
         }
     }
 
@@ -4957,8 +5104,31 @@ class MainActivity : Activity() {
             background = ripple(roundedGradient(intArrayOf(startColor, endColor), 24f), endColor)
             isClickable = true
             isFocusable = true
-            setOnClickListener { onClick() }
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                onClick()
+            }
         }
+    }
+
+    private fun ambientPageBackground(): GradientDrawable {
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                mixColor(Palette.background, Palette.blueWash, if (TuiMaTheme.isDark) 0.44f else 0.56f),
+                Palette.background,
+                Palette.background
+            )
+        )
+    }
+
+    private fun mixColor(base: Int, overlay: Int, amount: Float): Int {
+        val ratio = amount.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(base) + (Color.red(overlay) - Color.red(base)) * ratio).roundToInt(),
+            (Color.green(base) + (Color.green(overlay) - Color.green(base)) * ratio).roundToInt(),
+            (Color.blue(base) + (Color.blue(overlay) - Color.blue(base)) * ratio).roundToInt()
+        )
     }
 
     private fun thinDivider(): View {
