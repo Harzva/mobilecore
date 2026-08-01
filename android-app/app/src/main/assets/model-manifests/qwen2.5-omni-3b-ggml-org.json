@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "qwen2.5-omni-3b-ggml-org-q4km-q8-mmproj",
+  "display_name": "Qwen2.5-Omni-3B (ggml-org GGUF conversion)",
+  "conversion_publisher": "ggml-org",
+  "not_official_qwen_gguf": true,
+  "source_repository": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF",
+  "original_model": "https://huggingface.co/Qwen/Qwen2.5-Omni-3B",
+  "revision": "75f1b73b657a50f5092502799457ccb4a4a1f9df",
+  "license": {
+    "id": "qwen-research",
+    "review_status": "source_declared_not_legal_reviewed"
+  },
+  "runtime": {
+    "name": "llama.cpp/libmtmd",
+    "revision": "063d9c156e816ae3cf62db01f429a07a099afe97"
+  },
+  "quantization": "main=Q4_K_M;mmproj=Q8_0",
+  "total_artifact_bytes": 3642962976,
+  "minimum_available_memory_bytes": 4716704800,
+  "storage_safety_bytes": 536870912,
+  "install_policy": {
+    "explicit_consent_required": true,
+    "license_acceptance_required": true,
+    "wifi_only_default": true,
+    "temporary_suffix": ".part",
+    "checksum_algorithm": "SHA-256"
+  },
+  "artifacts": [
+    {
+      "role": "main",
+      "file_name": "Qwen2.5-Omni-3B-Q4_K_M.gguf",
+      "byte_size": 2104931648,
+      "sha256": "4b0bd358c1e9ec55dd3055ef6d71c958c821533d85916a10cfa89c4552a86e29",
+      "source": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF/resolve/75f1b73b657a50f5092502799457ccb4a4a1f9df/Qwen2.5-Omni-3B-Q4_K_M.gguf"
+    },
+    {
+      "role": "mmproj",
+      "file_name": "mmproj-Qwen2.5-Omni-3B-Q8_0.gguf",
+      "byte_size": 1538031328,
+      "sha256": "4e6c816cd33f7298d07cb780c136a396631e50e62f6501660271f8c6e302e565",
+      "source": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF/resolve/75f1b73b657a50f5092502799457ccb4a4a1f9df/mmproj-Qwen2.5-Omni-3B-Q8_0.gguf"
+    }
+  ]
+}

@@ -9,6 +9,8 @@
 
 #ifdef MOBILECORE_USE_LLAMA_CPP
 #include "llama.h"
+#include "mtmd.h"
+#include "mtmd-helper.h"
 #endif
 
 namespace {
@@ -29,6 +31,15 @@ std::atomic<bool> g_cancel_requested{false};
 bool g_backend_initialized = false;
 llama_model* g_model = nullptr;
 llama_context* g_context = nullptr;
+mtmd_context* g_mtmd_context = nullptr;
+std::string g_mmproj_path;
+bool g_mtmd_supports_vision = false;
+bool g_mtmd_supports_audio = false;
+std::string g_cached_media_id;
+std::vector<float> g_cached_media_embeddings;
+std::string g_cached_kv_media_id;
+std::vector<llama_token> g_cached_kv_prefix_tokens;
+llama_pos g_cached_kv_prefix_n_past = 0;
 
 void ensure_backend_initialized() {
     if (!g_backend_initialized) {
@@ -38,6 +49,18 @@ void ensure_backend_initialized() {
 }
 
 void release_llama_state() {
+    g_cached_media_id.clear();
+    g_cached_media_embeddings.clear();
+    g_cached_kv_media_id.clear();
+    g_cached_kv_prefix_tokens.clear();
+    g_cached_kv_prefix_n_past = 0;
+    if (g_mtmd_context != nullptr) {
+        mtmd_free(g_mtmd_context);
+        g_mtmd_context = nullptr;
+    }
+    g_mmproj_path.clear();
+    g_mtmd_supports_vision = false;
+    g_mtmd_supports_audio = false;
     if (g_context != nullptr) {
         llama_free(g_context);
         g_context = nullptr;
@@ -47,6 +70,106 @@ void release_llama_state() {
         g_model = nullptr;
     }
     g_model_loaded = false;
+}
+
+int32_t eval_mtmd_chunks_with_media_cache(
+    mtmd_input_chunks* chunks,
+    int32_t n_batch,
+    llama_pos* new_n_past
+) {
+    llama_pos n_past = 0;
+    const size_t chunk_count = mtmd_input_chunks_size(chunks);
+    size_t media_index = chunk_count;
+    std::string media_id;
+    std::vector<llama_token> prefix_tokens;
+    for (size_t index = 0; index < chunk_count; ++index) {
+        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, index);
+        const mtmd_input_chunk_type type = mtmd_input_chunk_get_type(chunk);
+        if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE || type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+            media_index = index;
+            const char* raw_id = mtmd_input_chunk_get_id(chunk);
+            media_id = raw_id == nullptr ? "" : raw_id;
+            break;
+        }
+        if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t token_count = 0;
+            const llama_token* tokens = mtmd_input_chunk_get_tokens_text(chunk, &token_count);
+            if (tokens != nullptr) {
+                prefix_tokens.insert(prefix_tokens.end(), tokens, tokens + token_count);
+            }
+        }
+    }
+
+    bool kv_prefix_hit = media_index < chunk_count && !media_id.empty() &&
+        media_id == g_cached_kv_media_id &&
+        prefix_tokens == g_cached_kv_prefix_tokens &&
+        g_cached_kv_prefix_n_past > 0;
+    llama_memory_t memory = llama_get_memory(g_context);
+    if (kv_prefix_hit) {
+        kv_prefix_hit = llama_memory_seq_rm(memory, 0, g_cached_kv_prefix_n_past, -1);
+    }
+    if (kv_prefix_hit) {
+        n_past = g_cached_kv_prefix_n_past;
+    } else {
+        llama_memory_clear(memory, true);
+        g_cached_kv_media_id.clear();
+        g_cached_kv_prefix_tokens.clear();
+        g_cached_kv_prefix_n_past = 0;
+    }
+
+    for (size_t index = 0; index < chunk_count; ++index) {
+        if (kv_prefix_hit && index <= media_index) continue;
+        const mtmd_input_chunk* chunk = mtmd_input_chunks_get(chunks, index);
+        const bool logits_last = index + 1 == chunk_count;
+        const mtmd_input_chunk_type type = mtmd_input_chunk_get_type(chunk);
+        int32_t result = 0;
+        if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE || type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+            const char* raw_id = mtmd_input_chunk_get_id(chunk);
+            const std::string media_id = raw_id == nullptr ? "" : raw_id;
+            const size_t embedding_count = mtmd_input_chunk_get_n_tokens(chunk) *
+                static_cast<size_t>(llama_model_n_embd_inp(g_model));
+            const bool cache_hit = !media_id.empty() && media_id == g_cached_media_id &&
+                g_cached_media_embeddings.size() == embedding_count;
+            if (!cache_hit) {
+                result = mtmd_encode_chunk(g_mtmd_context, chunk);
+                if (result != 0) return result;
+                const float* encoded = mtmd_get_output_embd(g_mtmd_context);
+                g_cached_media_embeddings.assign(encoded, encoded + embedding_count);
+                g_cached_media_id = media_id;
+            }
+            result = mtmd_helper_decode_image_chunk(
+                g_mtmd_context,
+                g_context,
+                chunk,
+                g_cached_media_embeddings.data(),
+                n_past,
+                0,
+                n_batch,
+                &n_past,
+                nullptr,
+                nullptr
+            );
+            if (result == 0 && index == media_index) {
+                g_cached_kv_media_id = media_id;
+                g_cached_kv_prefix_tokens = prefix_tokens;
+                g_cached_kv_prefix_n_past = n_past;
+            }
+        } else {
+            result = mtmd_helper_eval_chunk_single(
+                g_mtmd_context,
+                g_context,
+                chunk,
+                n_past,
+                0,
+                n_batch,
+                logits_last,
+                &n_past
+            );
+        }
+        if (result != 0) return result;
+        *new_n_past = n_past;
+    }
+    return 0;
 }
 
 bool file_exists(const std::string& path) {
@@ -100,7 +223,8 @@ std::string chat_json(
     long long decode_ms,
     long long total_ms,
     double decode_tokens_per_second,
-    long long memory_peak_mb
+    long long memory_peak_mb,
+    const std::string& code = ""
 ) {
     std::ostringstream json;
     json << "{"
@@ -115,10 +239,52 @@ std::string chat_json(
          << "\"decodeMs\":" << decode_ms << ","
          << "\"totalMs\":" << total_ms << ","
          << "\"decodeTokensPerSecond\":" << decode_tokens_per_second << ","
-         << "\"memoryPeakMb\":" << memory_peak_mb
+         << "\"memoryPeakMb\":" << memory_peak_mb;
+    if (!code.empty()) {
+        json << ",\"code\":\"" << escape_json(code) << "\"";
+    }
+    json
          << "}";
     return json.str();
 }
+
+#ifdef MOBILECORE_USE_LLAMA_CPP
+std::string format_mtmd_user_prompt(const std::string& user_prompt) {
+    const char* marker_value = g_mtmd_context == nullptr ? nullptr : mtmd_get_marker(g_mtmd_context);
+    const std::string marker = marker_value == nullptr || marker_value[0] == '\0'
+        ? mtmd_default_marker()
+        : marker_value;
+    const std::string content = marker + "\n" + user_prompt;
+    const char* chat_template = g_model == nullptr ? nullptr : llama_model_chat_template(g_model, nullptr);
+    if (chat_template != nullptr) {
+        const llama_chat_message message = {"user", content.c_str()};
+        const int32_t required = llama_chat_apply_template(
+            chat_template,
+            &message,
+            1,
+            true,
+            nullptr,
+            0
+        );
+        if (required > 0) {
+            std::vector<char> formatted(static_cast<size_t>(required) + 1, '\0');
+            const int32_t written = llama_chat_apply_template(
+                chat_template,
+                &message,
+                1,
+                true,
+                formatted.data(),
+                static_cast<int32_t>(formatted.size())
+            );
+            if (written > 0 && static_cast<size_t>(written) < formatted.size()) {
+                return std::string(formatted.data(), static_cast<size_t>(written));
+            }
+        }
+    }
+    return std::string("<|im_start|>user\n") + content +
+        "<|im_end|>\n<|im_start|>assistant\n";
+}
+#endif
 } // namespace
 
 extern "C" {
@@ -149,6 +315,16 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeBackendInfo(JNIEnv* env, jobject 
          << "false,"
 #endif
          << "\"modelLoaded\":" << (g_model_loaded ? "true" : "false") << ","
+         << "\"mtmdLoaded\":" << (g_mtmd_context != nullptr ? "true" : "false") << ","
+         << "\"visionInput\":" << (g_mtmd_context != nullptr && g_mtmd_supports_vision ? "true" : "false") << ","
+         << "\"audioInput\":" << (g_mtmd_context != nullptr && g_mtmd_supports_audio ? "true" : "false") << ","
+         << "\"audioSampleRate\":" << (g_mtmd_context != nullptr && g_mtmd_supports_audio ? mtmd_get_audio_sample_rate(g_mtmd_context) : 0) << ","
+         << "\"mtmdProjectorLoaded\":" << (g_mtmd_context != nullptr ? "true" : "false") << ","
+         << "\"mtmdProjector\":\"" << escape_json(g_mmproj_path.empty() ? "" : model_id_from_path(g_mmproj_path)) << "\","
+         << "\"mtmdSupportsVision\":" << (g_mtmd_supports_vision ? "true" : "false") << ","
+         << "\"mtmdSupportsAudio\":" << (g_mtmd_supports_audio ? "true" : "false") << ","
+         << "\"visionProjectorLoaded\":" << (g_mtmd_context != nullptr && g_mtmd_supports_vision ? "true" : "false") << ","
+         << "\"visionProjector\":\"" << escape_json(g_mmproj_path.empty() ? "" : model_id_from_path(g_mmproj_path)) << "\","
          << "\"activeModel\":\"" << escape_json(g_model_id) << "\","
          << "\"lastPromptEvalMs\":" << g_last_prompt_eval_ms << ","
          << "\"lastFirstTokenMs\":" << g_last_first_token_ms << ","
@@ -167,6 +343,217 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeBackendInfo(JNIEnv* env, jobject 
          << "\""
          << "}";
     return env->NewStringUTF(json.str().c_str());
+}
+
+JNIEXPORT jstring JNICALL
+Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadMtmdProjector(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring projectorPath,
+    jint threads,
+    jint imageMinTokens,
+    jint imageMaxTokens
+) {
+#ifdef MOBILECORE_USE_LLAMA_CPP
+    const char* projector_path_utf = env->GetStringUTFChars(projectorPath, nullptr);
+    const std::string projector_path = projector_path_utf == nullptr ? "" : projector_path_utf;
+    if (projector_path_utf != nullptr) {
+        env->ReleaseStringUTFChars(projectorPath, projector_path_utf);
+    }
+    if (g_model == nullptr || g_context == nullptr) {
+        return env->NewStringUTF("{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"load the text model before the mtmd projector\"}");
+    }
+    if (projector_path.empty() || !file_exists(projector_path)) {
+        return env->NewStringUTF("{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"mtmd projector not found\"}");
+    }
+    if (g_mtmd_context != nullptr) {
+        mtmd_free(g_mtmd_context);
+        g_mtmd_context = nullptr;
+    }
+    g_mmproj_path.clear();
+    g_mtmd_supports_vision = false;
+    g_mtmd_supports_audio = false;
+    g_cached_media_id.clear();
+    g_cached_media_embeddings.clear();
+    g_cached_kv_media_id.clear();
+    g_cached_kv_prefix_tokens.clear();
+    g_cached_kv_prefix_n_past = 0;
+    mtmd_context_params params = mtmd_context_params_default();
+    params.use_gpu = false;
+    params.print_timings = true;
+    params.n_threads = std::max(1, static_cast<int32_t>(threads));
+    params.warmup = false;
+    params.image_min_tokens = std::max(0, static_cast<int32_t>(imageMinTokens));
+    params.image_max_tokens = std::max(0, static_cast<int32_t>(imageMaxTokens));
+    g_mtmd_context = mtmd_init_from_file(projector_path.c_str(), g_model, params);
+    if (g_mtmd_context == nullptr) {
+        return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"libmtmd failed to load the projector\"}");
+    }
+    g_mtmd_supports_vision = mtmd_support_vision(g_mtmd_context);
+    g_mtmd_supports_audio = mtmd_support_audio(g_mtmd_context);
+    if (!g_mtmd_supports_vision && !g_mtmd_supports_audio) {
+        if (g_mtmd_context != nullptr) {
+            mtmd_free(g_mtmd_context);
+            g_mtmd_context = nullptr;
+        }
+        g_mtmd_supports_vision = false;
+        g_mtmd_supports_audio = false;
+        return env->NewStringUTF("{\"ok\":false,\"code\":\"unsupported_modality\",\"message\":\"mtmd projector exposes neither image nor audio input\"}");
+    }
+    g_mmproj_path = projector_path;
+    std::ostringstream json;
+    json << "{\"ok\":true,\"backend\":\"llama.cpp/libmtmd\",\"projector\":\""
+         << escape_json(model_id_from_path(g_mmproj_path)) << "\",\"visionInput\":"
+         << (g_mtmd_supports_vision ? "true" : "false") << ",\"imageInput\":"
+         << (g_mtmd_supports_vision ? "true" : "false") << ",\"audioInput\":"
+         << (g_mtmd_supports_audio ? "true" : "false")
+         << ",\"audioSampleRate\":" << (g_mtmd_supports_audio ? mtmd_get_audio_sample_rate(g_mtmd_context) : 0)
+         << ",\"message\":\"mtmd projector loaded\"}";
+    return env->NewStringUTF(json.str().c_str());
+#else
+    return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
+#endif
+}
+
+JNIEXPORT jstring JNICALL
+Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring modelId,
+    jstring mediaPath,
+    jstring modality,
+    jstring prompt,
+    jint maxTokens
+) {
+#ifdef MOBILECORE_USE_LLAMA_CPP
+    const char* model_id_utf = env->GetStringUTFChars(modelId, nullptr);
+    const char* media_path_utf = env->GetStringUTFChars(mediaPath, nullptr);
+    const char* modality_utf = env->GetStringUTFChars(modality, nullptr);
+    const char* prompt_utf = env->GetStringUTFChars(prompt, nullptr);
+    const std::string requested_model = model_id_utf == nullptr ? g_model_id : model_id_utf;
+    const std::string media_path = media_path_utf == nullptr ? "" : media_path_utf;
+    const std::string requested_modality = modality_utf == nullptr ? "" : modality_utf;
+    const std::string user_prompt = prompt_utf == nullptr ? "" : prompt_utf;
+    if (model_id_utf != nullptr) env->ReleaseStringUTFChars(modelId, model_id_utf);
+    if (media_path_utf != nullptr) env->ReleaseStringUTFChars(mediaPath, media_path_utf);
+    if (modality_utf != nullptr) env->ReleaseStringUTFChars(modality, modality_utf);
+    if (prompt_utf != nullptr) env->ReleaseStringUTFChars(prompt, prompt_utf);
+
+    if (requested_modality != "image" && requested_modality != "audio") {
+        const std::string json = chat_json(false, requested_model, "only image or audio input is supported", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
+        return env->NewStringUTF(json.c_str());
+    }
+    if (g_model == nullptr || g_context == nullptr || g_mtmd_context == nullptr) {
+        const std::string json = chat_json(false, requested_model, "model or mtmd projector is not loaded", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "artifact_missing");
+        return env->NewStringUTF(json.c_str());
+    }
+    const bool expects_audio = requested_modality == "audio";
+    const bool modality_supported = expects_audio ? g_mtmd_supports_audio : g_mtmd_supports_vision;
+    if (!modality_supported) {
+        const std::string json = chat_json(false, requested_model, requested_modality + " input is not supported by the active mtmd projector", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
+        return env->NewStringUTF(json.c_str());
+    }
+    if (media_path.empty() || !file_exists(media_path)) {
+        const std::string json = chat_json(false, requested_model, "media file is unavailable", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "media_missing");
+        return env->NewStringUTF(json.c_str());
+    }
+
+    g_cancel_requested.store(false, std::memory_order_release);
+    const auto total_start = std::chrono::steady_clock::now();
+    mtmd_helper_bitmap_wrapper media = mtmd_helper_bitmap_init_from_file(g_mtmd_context, media_path.c_str(), false);
+    if (media.bitmap == nullptr) {
+        const std::string json = chat_json(false, requested_model, "libmtmd failed to decode media", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "media_decode_failed");
+        return env->NewStringUTF(json.c_str());
+    }
+    if (media.video_ctx != nullptr) {
+        mtmd_bitmap_free(media.bitmap);
+        mtmd_helper_video_free(media.video_ctx);
+        const std::string json = chat_json(false, requested_model, "video input is not supported", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
+        return env->NewStringUTF(json.c_str());
+    }
+    if (mtmd_bitmap_is_audio(media.bitmap) != expects_audio) {
+        mtmd_bitmap_free(media.bitmap);
+        const std::string json = chat_json(false, requested_model, "decoded media does not match the declared modality", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
+        return env->NewStringUTF(json.c_str());
+    }
+
+    const std::string formatted = format_mtmd_user_prompt(user_prompt);
+    mtmd_input_text input_text;
+    input_text.text = formatted.c_str();
+    input_text.add_special = true;
+    input_text.parse_special = true;
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    const mtmd_bitmap* bitmaps[] = {media.bitmap};
+    const int32_t tokenize_result = mtmd_tokenize(g_mtmd_context, chunks, &input_text, bitmaps, 1);
+    if (tokenize_result != 0) {
+        mtmd_input_chunks_free(chunks);
+        mtmd_bitmap_free(media.bitmap);
+        const std::string json = chat_json(false, requested_model, "libmtmd prompt tokenization failed", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
+        return env->NewStringUTF(json.c_str());
+    }
+
+    const int32_t n_prompt = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks));
+    llama_pos n_past = 0;
+    const auto prompt_eval_start = std::chrono::steady_clock::now();
+    const int32_t eval_result = eval_mtmd_chunks_with_media_cache(chunks, 512, &n_past);
+    mtmd_input_chunks_free(chunks);
+    mtmd_bitmap_free(media.bitmap);
+    if (eval_result != 0) {
+        const std::string json = chat_json(false, requested_model, "libmtmd media/prompt evaluation failed", n_prompt, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
+        return env->NewStringUTF(json.c_str());
+    }
+    const auto prompt_eval_end = std::chrono::steady_clock::now();
+    const long long prompt_eval_ms = elapsed_ms(prompt_eval_start, prompt_eval_end);
+
+    const llama_vocab* vocab = llama_model_get_vocab(g_model);
+    llama_sampler* sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+    std::string generated;
+    int32_t n_decode = 0;
+    long long first_token_ms = 0;
+    const int32_t capped_max_tokens = std::max(1, std::min(maxTokens, 128));
+    const auto decode_start = std::chrono::steady_clock::now();
+    bool cancelled = false;
+    while (n_decode < capped_max_tokens) {
+        if (g_cancel_requested.load(std::memory_order_acquire)) {
+            cancelled = true;
+            break;
+        }
+        const llama_token token = llama_sampler_sample(sampler, g_context, -1);
+        if (llama_vocab_is_eog(vocab, token)) break;
+        char piece[512];
+        const int32_t n_piece = llama_token_to_piece(vocab, token, piece, sizeof(piece), 0, true);
+        if (n_piece > 0) generated.append(piece, n_piece);
+        llama_sampler_accept(sampler, token);
+        n_decode += 1;
+        if (n_decode == 1) first_token_ms = elapsed_ms(total_start, std::chrono::steady_clock::now());
+        if (n_decode >= capped_max_tokens) break;
+        llama_batch batch = llama_batch_get_one(const_cast<llama_token*>(&token), 1);
+        if (llama_decode(g_context, batch) != 0) {
+            llama_sampler_free(sampler);
+            const std::string json = chat_json(false, requested_model, "llama.cpp multimodal token decode failed", n_prompt, n_decode, prompt_eval_ms, first_token_ms, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
+            return env->NewStringUTF(json.c_str());
+        }
+    }
+    const auto decode_end = std::chrono::steady_clock::now();
+    llama_sampler_free(sampler);
+    if (cancelled) generated = "cancelled";
+    if (generated.empty() && !cancelled) generated = "llama.cpp generated an empty response";
+    const long long decode_ms = elapsed_ms(decode_start, decode_end);
+    const long long total_ms = elapsed_ms(total_start, decode_end);
+    const double decode_tps = decode_ms > 0 ? static_cast<double>(n_decode) * 1000.0 / decode_ms : 0.0;
+    g_last_prompt_eval_ms = prompt_eval_ms;
+    g_last_first_token_ms = first_token_ms;
+    g_last_decode_ms = decode_ms;
+    g_last_total_ms = total_ms;
+    g_last_decode_tokens_per_second = decode_tps;
+    g_last_prompt_tokens = n_prompt;
+    g_last_completion_tokens = n_decode;
+    const std::string json = chat_json(!cancelled, requested_model, generated, n_prompt, n_decode, prompt_eval_ms, first_token_ms, decode_ms, total_ms, decode_tps, g_last_memory_mb, cancelled ? "cancelled" : "");
+    return env->NewStringUTF(json.c_str());
+#else
+    return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
+#endif
 }
 
 JNIEXPORT jstring JNICALL
@@ -191,9 +578,10 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
         std::ostringstream json;
         json << "{"
              << "\"ok\":false,"
+             << "\"code\":\"artifact_missing\","
              << "\"modelId\":\"" << escape_json(g_model_id) << "\","
              << "\"backend\":\"llama.cpp\","
-             << "\"message\":\"model file not found: " << escape_json(g_model_path) << "\""
+             << "\"message\":\"model artifact not found\""
              << "}";
         return env->NewStringUTF(json.str().c_str());
     }

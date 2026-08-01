@@ -16,13 +16,28 @@ data class BenchmarkDeviceIdentity(
     val coreCount: Int
 )
 
+data class BenchmarkExecutionIdentity(
+    val computeBackend: String,
+    val runtime: String,
+    val gpuLayers: Int
+) {
+    companion object {
+        val CPU_LLAMA_CPP = BenchmarkExecutionIdentity(
+            computeBackend = "cpu",
+            runtime = "llama.cpp",
+            gpuLayers = 0
+        )
+    }
+}
+
 data class BenchmarkReport(
     val runId: String,
     val createdAtMs: Long,
     val manifestSha256: String,
     val device: BenchmarkDeviceIdentity,
     val summary: BenchmarkSummary,
-    val score: BenchmarkScoreV2?
+    val score: BenchmarkScoreV2?,
+    val execution: BenchmarkExecutionIdentity = BenchmarkExecutionIdentity.CPU_LLAMA_CPP
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("schema", REPORT_SCHEMA)
@@ -38,6 +53,11 @@ data class BenchmarkReport(
             put("abi", device.abi)
             put("total_memory_mb", device.totalMemoryMb)
             put("core_count", device.coreCount)
+        })
+        put("execution", JSONObject().apply {
+            put("compute_backend", execution.computeBackend)
+            put("runtime", execution.runtime)
+            put("gpu_layers", execution.gpuLayers)
         })
         put("spec", summary.spec.toJson())
         put("valid", summary.valid)

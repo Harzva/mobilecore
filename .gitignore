@@ -41,3 +41,6 @@ design-assets/backup/
 
 # Internal transfer notes from planning sessions.
 docs/evidence/
+.codex-team/
+HANDOFF.md
+tmp/

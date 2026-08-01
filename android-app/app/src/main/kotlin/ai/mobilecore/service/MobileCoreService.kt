@@ -39,7 +39,6 @@ class MobileCoreService : Service() {
             backend = backend,
             modelManager = modelManager,
             context = applicationContext,
-            host = "127.0.0.1",
             port = 8080,
             apiKey = "local"
         )
@@ -80,6 +79,7 @@ class MobileCoreService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        runCatching { server.cancelBackgroundOperations() }
         runCatching { server.stop() }
         backend.unloadModel()
         stopWakeLock()
