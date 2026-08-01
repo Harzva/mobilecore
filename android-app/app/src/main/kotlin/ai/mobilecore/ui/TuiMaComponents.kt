@@ -25,9 +25,13 @@ internal object Palette {
     val sky get() = TuiMaTheme.sky
     val blue get() = TuiMaTheme.blue
     val lavender get() = TuiMaTheme.lavender
+    val amber get() = TuiMaTheme.amber
+    val danger get() = TuiMaTheme.danger
     val mintWash get() = TuiMaTheme.mintWash
     val blueWash get() = TuiMaTheme.blueWash
     val lavenderWash get() = TuiMaTheme.lavenderWash
+    val amberWash get() = TuiMaTheme.amberWash
+    val dangerWash get() = TuiMaTheme.dangerWash
 }
 
 /** Allocation-free circular progress primitive used by the benchmark screen. */

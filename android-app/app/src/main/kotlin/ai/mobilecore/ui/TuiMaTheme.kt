@@ -41,13 +41,17 @@ object TuiMaTheme {
     val sky: Int get() = if (dark) 0xFF51D5EA.toInt() else TuiMaShareTheme.sky
     val blue: Int get() = if (dark) 0xFF8AA4FF.toInt() else TuiMaShareTheme.blue
     val lavender: Int get() = if (dark) 0xFFC3B0FF.toInt() else TuiMaShareTheme.lavender
+    val amber: Int get() = if (dark) 0xFFFFC65A.toInt() else TuiMaShareTheme.amber
+    val danger: Int get() = if (dark) 0xFFFF8A8A.toInt() else TuiMaShareTheme.danger
     val mintWash: Int get() = if (dark) 0xFF0F2A28.toInt() else TuiMaShareTheme.mintWash
     val blueWash: Int get() = if (dark) 0xFF10263B.toInt() else TuiMaShareTheme.blueWash
     val lavenderWash: Int get() = if (dark) 0xFF211D3B.toInt() else TuiMaShareTheme.lavenderWash
+    val amberWash: Int get() = if (dark) 0xFF332812.toInt() else TuiMaShareTheme.amberWash
+    val dangerWash: Int get() = if (dark) 0xFF351B25.toInt() else TuiMaShareTheme.dangerWash
 
     const val compactHeaderHeightDp = 62
     const val minimumTouchTargetDp = 48
-    const val cardRadiusDp = 16f
+    const val cardRadiusDp = 8f
 }
 
 /** Stable export palette so shared cards look identical in light and dark app themes. */
@@ -64,7 +68,11 @@ object TuiMaShareTheme {
     const val sky = 0xFF43D1E8.toInt()
     const val blue = 0xFF6B8CFF.toInt()
     const val lavender = 0xFFB69CFF.toInt()
+    const val amber = 0xFFF4B740.toInt()
+    const val danger = 0xFFE66767.toInt()
     const val mintWash = 0xFFF0FFF9.toInt()
     const val blueWash = 0xFFEEF7FF.toInt()
     const val lavenderWash = 0xFFF4F1FF.toInt()
+    const val amberWash = 0xFFFFF7E5.toInt()
+    const val dangerWash = 0xFFFFEEEE.toInt()
 }
