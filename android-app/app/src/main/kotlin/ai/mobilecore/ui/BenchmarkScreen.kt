@@ -64,7 +64,7 @@ object BenchmarkScreenPresenter {
 
     private fun message(state: BenchmarkUiState, modelDisplayName: (String) -> String): String = when (state) {
         BenchmarkUiState.Ready -> "标准模型已就绪。测试时会自动启动本机服务。"
-        is BenchmarkUiState.NeedsModel -> "需要 ${state.fileName}，下载完成后即可开始。"
+        is BenchmarkUiState.NeedsModel -> "需要 ${modelDisplayName(state.fileName.substringBeforeLast('.'))} 标准模型，下载完成后即可开始。"
         is BenchmarkUiState.Checking -> "正在校验电量、温度、存储和模型完整性。"
         is BenchmarkUiState.LoadingModel -> "正在加载 ${modelDisplayName(state.modelName.substringBeforeLast('.'))}。"
         is BenchmarkUiState.WarmingUp -> "预热 ${state.current} / ${state.total}，这部分不计分。"

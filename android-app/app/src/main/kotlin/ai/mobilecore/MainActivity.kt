@@ -300,7 +300,7 @@ class MainActivity : Activity() {
         }
         bottomNavHost = FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
-            setPadding(dp(pageGutterDp()), dp(3), dp(pageGutterDp()), dp(8))
+            setPadding(0, dp(2), 0, dp(8))
         }
 
         rootScrollView.addView(
@@ -317,7 +317,7 @@ class MainActivity : Activity() {
             rootScrollView.setPadding(0, systemBars.top, 0, 0)
             rootScrollView.clipToPadding = true
             contentRoot.setPadding(dp(pageGutterDp()), dp(12), dp(pageGutterDp()), dp(12))
-            bottomNavHost.setPadding(dp(pageGutterDp()), dp(3), dp(pageGutterDp()), max(dp(8), systemBars.bottom + dp(4)))
+            bottomNavHost.setPadding(0, dp(2), 0, max(dp(8), systemBars.bottom + dp(4)))
             insets
         }
         setContentView(pageRoot)
@@ -417,35 +417,29 @@ class MainActivity : Activity() {
 
     private fun renderHomeTab(content: LinearLayout) {
         content.addView(buildHeader())
-        content.addView(space(18))
-        content.addView(buildHomeIntro())
-        content.addView(space(14))
+        content.addView(space(12))
+        content.addView(buildHomeDeviceOverview())
+        content.addView(space(12))
         content.addView(buildHomePrimaryCard())
-        content.addView(space(12))
-        content.addView(buildHomeReadinessCard())
-        content.addView(space(12))
-        content.addView(buildHomeLatestResultCard())
         content.addView(space(12))
         content.addView(buildLocalPrivacyRow())
     }
 
     private fun renderModelsTab(content: LinearLayout) {
-        content.addView(buildCompactHeader("模型", "标准模型与高级模型库", "cube"))
+        content.addView(buildCompactHeader("模型", "本机模型库与端侧运行状态", "cube"))
         content.addView(space(12))
         content.addView(buildStorageCard())
-        content.addView(space(12))
-        content.addView(sectionTitle("${featuredModelScopeCatalog().size} 个精选模型", "结合本机配置推荐下载"))
+        content.addView(space(18))
+        content.addView(sectionTitle("适配本机", "优先展示内存压力更低的 6 个模型"))
+        content.addView(space(10))
         content.addView(buildFeaturedModelScopeCard())
-        content.addView(space(12))
-        content.addView(sectionTitle("ModelScope", "模型列表 / 搜索 / GGUF"))
+        content.addView(space(18))
+        content.addView(sectionTitle("在线搜索", "从 ModelScope 查找更多 GGUF"))
+        content.addView(space(10))
         content.addView(buildModelScopeCatalogCard())
         content.addView(space(18))
-        content.addView(sectionTitle("快捷下载", "ModelScope / HuggingFace"))
-        content.addView(buildModelHubCard())
-        content.addView(space(18))
-        content.addView(buildRecentModelsCard())
-        content.addView(space(18))
-        content.addView(sectionTitle("推荐排序", "按本机能力计算"))
+        content.addView(sectionTitle("运行建议", "按设备能力和历史速度排序"))
+        content.addView(space(10))
         content.addView(buildRecommendationCard())
     }
 
@@ -710,7 +704,7 @@ class MainActivity : Activity() {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label("TuiMa", 21f, Palette.deepInk, Typeface.BOLD).apply { letterSpacing = -0.02f })
+                    addView(label("TuiMa", 22f, Palette.mint, Typeface.BOLD).apply { letterSpacing = -0.02f })
                     addView(space(2))
                     addView(label("端侧 AI 控制台", 11.5f, Palette.muted, Typeface.BOLD))
                 },
@@ -722,6 +716,74 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { marginStart = dp(10) }
             )
             contentDescription = "TuiMa 端侧 AI 控制台，标准模型${lifecycle.statusLabel}"
+        }
+    }
+
+    private fun buildHomeDeviceOverview(): View {
+        val profile = probeDeviceProfile()
+        val telemetry = runCatching { AndroidBenchmarkTelemetry(applicationContext).sample() }.getOrNull()
+        val lifecycle = requiredBenchmarkModelLifecycle()
+        val lifecycleAccent = modelLifecycleAccent(lifecycle.tone)
+        val availableRam = if (profile.availableRamMb >= 1024L) {
+            "${"%.1f".format(Locale.US, profile.availableRamMb / 1024.0)} GB"
+        } else {
+            "${profile.availableRamMb} MB"
+        }
+        val temperature = telemetry?.batteryTemperatureCelsius?.let {
+            "${"%.1f".format(Locale.US, it)}°C"
+        } ?: "检测中"
+
+        return surfaceCard(Palette.mint, gradient = true) {
+            addView(
+                LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        IconBadgeView(context, "chip", Palette.mint),
+                        LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(11) }
+                    )
+                    addView(
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            addView(label(profile.model, 15.5f, Palette.deepInk, Typeface.BOLD).apply { maxLines = 2 })
+                            addView(space(3))
+                            addView(label("${profile.abi} · ${profile.backend} · CPU", 11.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(
+                        chip(
+                            label(lifecycle.statusLabel, 10.8f, lifecycleAccent, Typeface.BOLD),
+                            tint(lifecycleAccent, 0.10f),
+                            lifecycleAccent,
+                        ),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginStart = dp(8) }
+                    )
+                }
+            )
+            addView(space(14))
+            addView(thinDivider())
+            addView(space(12))
+            addView(
+                LinearLayout(context).apply {
+                    addView(instrumentMetric("可用内存", availableRam, Palette.blue), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(instrumentMetric("CPU 核心", "${profile.coreCount} 核", Palette.sky), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(instrumentMetric("当前电量", telemetry?.let { "${it.batteryPercent}%" } ?: "检测中", Palette.mint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(instrumentMetric("设备温度", temperature, if ((telemetry?.batteryTemperatureCelsius ?: 0.0) >= 42.0) Palette.amber else Palette.mint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                }
+            )
+            addView(space(12))
+            addView(label("标准模型 · ${lifecycle.supportingText}", 11.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+        }
+    }
+
+    private fun instrumentMetric(title: String, value: String, accent: Int): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
+            addView(autoSizeSingleLineLabel(value, 13f, 9f, accent, Typeface.BOLD).apply { gravity = Gravity.CENTER })
+            addView(space(3))
+            addView(label(title, 9.7f, Palette.muted, Typeface.NORMAL).apply { gravity = Gravity.CENTER; maxLines = 1 })
+            contentDescription = "$title，$value"
         }
     }
 
@@ -969,7 +1031,7 @@ class MainActivity : Activity() {
         val accent = modelLifecycleAccent(lifecycle.tone)
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(accent, 0.075f), tint(accent, 0.24f), TuiMaTheme.cardRadiusDp)
+            background = rounded(tint(accent, 0.075f), Color.TRANSPARENT, TuiMaTheme.cardRadiusDp)
             setPadding(dp(12), dp(11), dp(12), dp(11))
             addView(
                 LinearLayout(context).apply {
@@ -1057,11 +1119,17 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = if (gradient) {
-                roundedGradient(intArrayOf(Palette.surface, tint(accent, 0.10f), Palette.blueWash), TuiMaTheme.cardRadiusDp)
+                roundedGradient(
+                    intArrayOf(
+                        Palette.surface,
+                        mixColor(Palette.surface, accent, if (TuiMaTheme.isDark) 0.075f else 0.045f),
+                    ),
+                    TuiMaTheme.cardRadiusDp,
+                )
             } else {
-                rounded(Palette.surface, tint(accent, 0.18f), TuiMaTheme.cardRadiusDp)
+                rounded(Palette.surface, tint(Palette.stroke, 0.48f), TuiMaTheme.cardRadiusDp)
             }
-            elevation = 0f
+            elevation = dp(1).toFloat()
             setPadding(dp(15), dp(16), dp(15), dp(15))
             block()
         }
@@ -1106,7 +1174,7 @@ class MainActivity : Activity() {
     private fun softInfoBlock(text: String, accent: Int, maxLines: Int = 2): TextView {
         return label(text, 12.4f, tint(Palette.ink, 0.68f), Typeface.NORMAL).apply {
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded(tint(accent, 0.08f), tint(accent, 0.18f), 14f)
+            background = rounded(tint(accent, 0.075f), Color.TRANSPARENT, 7f)
             this.maxLines = maxLines
         }
     }
@@ -1115,12 +1183,17 @@ class MainActivity : Activity() {
         val freeMb = runCatching { externalModelDir().freeSpace / (1024 * 1024) }.getOrDefault(0L)
         val totalMb = runCatching { externalModelDir().totalSpace / (1024 * 1024) }.getOrDefault(0L)
         val usedMb = (totalMb - freeMb).coerceAtLeast(0L)
+        val storagePercent = if (totalMb > 0L) {
+            ((usedMb.toDouble() / totalMb.toDouble()) * 100).roundToInt().coerceIn(0, 100)
+        } else {
+            0
+        }
         val modelBytes = modelDirs()
             .flatMap { it.listFiles()?.toList() ?: emptyList() }
             .filter { it.isFile && it.extension.equals("gguf", ignoreCase = true) }
             .sumOf { it.length() }
         val storageLine = if (totalMb > 0) {
-            "模型 ${formatBytes(modelBytes)} · 已用 ${usedMb / 1024} / ${totalMb / 1024} GB"
+            "模型 ${formatBytes(modelBytes)} · 可用 ${freeMb / 1024} / ${totalMb / 1024} GB"
         } else {
             "模型 ${formatBytes(modelBytes)}"
         }
@@ -1129,6 +1202,17 @@ class MainActivity : Activity() {
         return surfaceCard(Palette.mint) {
             addView(cardHeader("本机模型库", storageLine, "chip", Palette.mint, "${localModels.size} 个"))
             addView(space(12))
+            addView(
+                ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    progress = storagePercent
+                    progressTintList = ColorStateList.valueOf(Palette.blue)
+                    progressBackgroundTintList = ColorStateList.valueOf(tint(Palette.muted, 0.14f))
+                    contentDescription = "设备存储已使用 $storagePercent%"
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6))
+            )
+            addView(space(10))
             addView(readinessRow("运行时", activeName?.let { "已加载 ${displayModelName(it)}" } ?: "暂无已加载模型", activeName != null))
             addView(thinDivider())
             addView(readinessRow("本地文件", if (localModels.isEmpty()) "未下载" else "已下载 ${localModels.size} 个", localModels.isNotEmpty()))
@@ -1153,25 +1237,28 @@ class MainActivity : Activity() {
                     .thenBy { modelParameterValue(it.parameterLabel) }
                     .thenBy { estimateMobileMemoryMb(it) }
             )
+            .take(6)
         val best = featuredItems.firstOrNull()
         val headerText = best?.let {
             "${fitLabel(it, profile)} · 首推 ${it.parameterLabel} ${it.quantization}"
         } ?: "准备推荐"
 
-        return surfaceCard(Palette.mint, gradient = true) {
-            addView(cardHeader("精选 ModelScope 模型", "按本机内存、核心数和量化等级排序", "download", Palette.mint, "适配本机", Palette.mintDark))
-            addView(space(5))
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             addView(
                 label(
-                    "内存 ${profile.availableRamMb}/${profile.totalRamMb}MB · ${profile.coreCount} 核 · $headerText",
-                    12f,
-                    Palette.muted,
-                    Typeface.NORMAL
-                ).apply { maxLines = 2 }
+                    "${profile.coreCount} 核 · 可用内存 ${profile.availableRamMb}MB · $headerText",
+                    11.8f,
+                    Palette.mintDark,
+                    Typeface.BOLD,
+                ).apply {
+                    setPadding(dp(2), 0, dp(2), 0)
+                    maxLines = 2
+                }
             )
             addView(space(10))
             featuredItems.forEachIndexed { index, entry ->
-                addView(buildModelScopeResultRow(entry, compact = index >= 5))
+                addView(buildModelScopeResultRow(entry, compact = index >= 2))
                 if (index != featuredItems.lastIndex) {
                     addView(space(8))
                 }
@@ -1301,56 +1388,84 @@ class MainActivity : Activity() {
             "$fit · 预计内存 ${estimatedMemoryMb}MB · ${recommendationReasonFor(entry, profile)}"
         }
         val accent = modelLifecycleAccent(lifecycle.tone)
+        val actionAccent = when (lifecycle.phase) {
+            ModelLifecyclePhase.NOT_DOWNLOADED,
+            ModelLifecyclePhase.DOWNLOADING,
+            ModelLifecyclePhase.PAUSED -> Palette.mintDark
+            ModelLifecyclePhase.DOWNLOADED,
+            ModelLifecyclePhase.LOADING -> Palette.blue
+            ModelLifecyclePhase.LOADED -> Palette.mint
+            ModelLifecyclePhase.DOWNLOAD_FAILED,
+            ModelLifecyclePhase.LOAD_FAILED -> Palette.danger
+        }
         val badge = lifecycle.statusLabel
         val primaryAction = lifecycle.actionLabel
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(accent, 0.055f), tint(accent, 0.18f), TuiMaTheme.cardRadiusDp)
-            setPadding(dp(13), dp(13), dp(13), dp(13))
-            addView(
-                miniListCard(
-                    title = entry.displayTitle,
-                    subtitle = entry.repoId,
-                    badge = badge,
-                    icon = "cube",
-                    accent = accent,
-                    selected = loadedInRuntime
-                )
+            background = ripple(
+                rounded(
+                    mixColor(Palette.surface, accent, if (loadedInRuntime) 0.11f else 0.035f),
+                    if (loadedInRuntime) tint(accent, 0.42f) else tint(Palette.stroke, 0.50f),
+                    TuiMaTheme.cardRadiusDp,
+                ),
+                accent,
             )
-            addView(space(8))
-            addView(label(entry.fileName, 12f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 })
-            addView(space(3))
+            setPadding(dp(12), dp(11), dp(12), dp(11))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                Toast.makeText(this@MainActivity, "${entry.repoId}\n${entry.fileName}\n$reason", Toast.LENGTH_LONG).show()
+            }
             addView(
-                label(
-                    "${entry.parameterLabel} · ${formatBytes(entry.sizeBytes)} · 预计 ${estimatedMemoryMb}MB · $fit",
-                    12f,
-                    Palette.muted,
-                    Typeface.NORMAL
-                ).apply { maxLines = 2 }
+                LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        IconBadgeView(context, "cube", accent),
+                        LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(10) },
+                    )
+                    addView(
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            addView(label(entry.displayTitle, 14f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 })
+                            addView(space(3))
+                            addView(
+                                label(
+                                    "${entry.parameterLabel} · ${entry.quantization} · ${formatBytes(entry.sizeBytes)} · $fit",
+                                    11.2f,
+                                    Palette.muted,
+                                    Typeface.NORMAL,
+                                ).apply { maxLines = 2 }
+                            )
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                    )
+                    addView(
+                        chip(label(badge, 10.5f, accent, Typeface.BOLD), tint(accent, 0.10f), accent),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { marginStart = dp(8) },
+                    )
+                }
             )
             if (!compact) {
-                addView(space(3))
+                addView(space(8))
                 addView(
                     label(
                         reason,
-                        12f,
+                        11.5f,
                         Palette.muted,
-                        Typeface.NORMAL
+                        Typeface.NORMAL,
                     ).apply { maxLines = 2 }
                 )
             }
-            addView(space(7))
-            addView(label(lifecycle.supportingText, 11.8f, accent, Typeface.BOLD).apply { maxLines = 2 })
-            addView(space(10))
+            addView(space(9))
             addView(
                 LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
                     addView(
-                        pillButton(
-                            primaryAction,
-                            Palette.mintDark,
-                            Palette.mint
-                        ) {
+                        label(lifecycle.supportingText, 11.4f, accent, Typeface.BOLD).apply { maxLines = 2 },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(10) },
+                    )
+                    addView(
+                        compactActionButton(primaryAction, actionAccent, lifecycle.actionEnabled) {
                             val currentFile = File(externalModelDir(), entry.fileName)
                             val currentState = providerStateByProvider[taskKey]
                             val currentDownloaded = currentFile.exists() && currentFile.length() > 1024 * 1024
@@ -1365,20 +1480,12 @@ class MainActivity : Activity() {
                                 ModelLifecyclePhase.DOWNLOADING -> pauseModelDownload(taskKey)
                                 else -> enqueueModelDownload(modelHubItem)
                             }
-                        }.apply {
-                            isEnabled = lifecycle.actionEnabled
-                            alpha = if (lifecycle.actionEnabled) 1f else 0.55f
                         },
-                        LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
-                    )
-                    addView(
-                        chipButton("详情", false) {
-                            Toast.makeText(this@MainActivity, "${entry.repoId}\n${entry.fileName}\n$reason", Toast.LENGTH_LONG).show()
-                        },
-                        LinearLayout.LayoutParams(dp(82), dp(44))
+                        LinearLayout.LayoutParams(dp(92), dp(44)),
                     )
                 }
             )
+            contentDescription = "${entry.displayTitle}，${lifecycle.statusLabel}，$fit。点击查看详情"
         }
     }
 
@@ -1980,7 +2087,11 @@ class MainActivity : Activity() {
             minimumHeight = dp(64)
             setPadding(dp(5), dp(10), dp(5), dp(10))
             background = ripple(
-                rounded(if (selected) Palette.mintPale else Palette.surface, tint(accent, 0.30f), 14f),
+                rounded(
+                    if (selected) Palette.mintPale else mixColor(Palette.surface, Palette.muted, 0.025f),
+                    if (selected) tint(accent, 0.44f) else Color.TRANSPARENT,
+                    7f,
+                ),
                 accent
             )
             isClickable = !disabled
@@ -2000,17 +2111,9 @@ class MainActivity : Activity() {
 
     private fun buildBenchmarkStatePanel(state: BenchmarkUiState): View {
         val screen = benchmarkScreenUi(state)
-        val accent = when (state) {
-            is BenchmarkUiState.Completed, BenchmarkUiState.Ready -> Palette.mint
-            is BenchmarkUiState.Blocked, is BenchmarkUiState.Failed -> Palette.amber
-            is BenchmarkUiState.NeedsModel -> Palette.lavender
-            BenchmarkUiState.Cancelled -> Palette.danger
-            else -> Palette.sky
-        }
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(accent, 0.08f), tint(accent, 0.24f), 7f)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setPadding(0, 0, 0, 0)
             addView(label(screen.title, 16f, Palette.ink, Typeface.BOLD))
             addView(space(5))
             addView(label(screen.message, 13f, Palette.muted, Typeface.NORMAL).apply {
@@ -2501,8 +2604,7 @@ class MainActivity : Activity() {
     private fun buildResultInsightCard(insight: ai.mobilecore.ui.ResultInsight): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(Palette.sky, 0.08f), tint(Palette.sky, 0.22f), 7f)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setPadding(0, 0, 0, 0)
             addView(label("能力解读", 14f, Palette.deepInk, Typeface.BOLD))
             addView(space(7))
             addView(label(insight.summary, 13.5f, Palette.ink, Typeface.NORMAL).apply { maxLines = 2 })
@@ -2595,7 +2697,7 @@ class MainActivity : Activity() {
     private fun comparisonRow(labelText: String, current: String, previous: String, delta: String, deltaColor: Int): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(Palette.surface, 0.52f), tint(Palette.lavender, 0.14f), TuiMaTheme.cardRadiusDp)
+            background = rounded(tint(Palette.surface, 0.32f), Color.TRANSPARENT, TuiMaTheme.cardRadiusDp)
             setPadding(dp(10), dp(9), dp(10), dp(9))
             addView(label(labelText, 11.5f, Palette.ink, Typeface.BOLD))
             addView(space(7))
@@ -3756,9 +3858,9 @@ class MainActivity : Activity() {
     private fun buildBottomNavigation(): View {
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER
-            background = rounded(Palette.surface, tint(Palette.sky, 0.20f), TuiMaTheme.cardRadiusDp)
-            elevation = dp(3).toFloat()
-            setPadding(dp(4), dp(3), dp(4), dp(3))
+            background = rounded(Palette.surface, Color.TRANSPARENT, 0f)
+            elevation = dp(8).toFloat()
+            setPadding(dp(7), dp(3), dp(7), dp(3))
             addView(navItem("首页", "home", AppTab.HOME), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(navItem("跑分", "play", AppTab.TEST), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(navItem("结果", "gauge", AppTab.RESULTS), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
@@ -3778,7 +3880,7 @@ class MainActivity : Activity() {
             minimumHeight = dp(62)
             setPadding(dp(2), dp(4), dp(2), dp(4))
             background = ripple(
-                if (selected) rounded(tint(Palette.mint, 0.11f), Color.TRANSPARENT, 11f) else rounded(Color.TRANSPARENT, Color.TRANSPARENT, 11f),
+                rounded(Color.TRANSPARENT, Color.TRANSPARENT, 7f),
                 accent
             )
             isClickable = true
@@ -3841,7 +3943,7 @@ class MainActivity : Activity() {
             setTextColor(if (selected) Palette.mintDark else Palette.muted)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = ripple(
-                rounded(if (selected) Palette.mintPale else Palette.surface, tint(accent, 0.35f), 18f),
+                rounded(if (selected) Palette.mintPale else Palette.surface, tint(accent, 0.30f), 7f),
                 accent
             )
             TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
@@ -3853,6 +3955,35 @@ class MainActivity : Activity() {
             )
             isClickable = true
             isFocusable = true
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onClick()
+            }
+        }
+    }
+
+    private fun compactActionButton(text: String, accent: Int, enabled: Boolean, onClick: () -> Unit): View {
+        return TextView(this).apply {
+            this.text = text
+            gravity = Gravity.CENTER
+            textSize = 12f
+            maxLines = 1
+            minimumHeight = dp(44)
+            setPadding(dp(10), 0, dp(10), 0)
+            setTextColor(accent)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            background = ripple(rounded(tint(accent, 0.10f), tint(accent, 0.30f), 7f), accent)
+            isClickable = enabled
+            isFocusable = enabled
+            isEnabled = enabled
+            alpha = if (enabled) 1f else 0.52f
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this,
+                9,
+                12,
+                1,
+                TypedValue.COMPLEX_UNIT_SP,
+            )
             setOnClickListener {
                 performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
@@ -5281,7 +5412,7 @@ class MainActivity : Activity() {
 
     private fun chip(textView: TextView, background: Int, border: Int): View {
         return FrameLayout(this).apply {
-            this.background = rounded(background, tint(border, 0.28f), 18f)
+            this.background = rounded(background, tint(border, 0.24f), 7f)
             setPadding(dp(12), 0, dp(12), 0)
             addView(
                 textView,
@@ -5304,7 +5435,7 @@ class MainActivity : Activity() {
             setPadding(dp(14), dp(8), dp(14), dp(8))
             setTextColor(Color.WHITE)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = ripple(roundedGradient(intArrayOf(startColor, endColor), 24f), endColor)
+            background = ripple(roundedGradient(intArrayOf(startColor, endColor), 8f), endColor)
             TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
                 this,
                 12,
