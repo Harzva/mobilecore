@@ -14,7 +14,7 @@ class OmniArtifactManifestTest {
         assertEquals("ggml-org", manifest.conversionPublisher)
         assertEquals("qwen-research", manifest.licenseId)
         assertEquals(
-            "063d9c156e816ae3cf62db01f429a07a099afe97",
+            "e1af89a6815737a5db132eee23a94a8ee58553e0",
             Qwen25Omni3bArtifacts.LLAMA_CPP_REVISION
         )
         assertEquals(

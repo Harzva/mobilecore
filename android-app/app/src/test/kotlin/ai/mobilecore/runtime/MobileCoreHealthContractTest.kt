@@ -47,7 +47,7 @@ class MobileCoreHealthContractTest {
         modelLoaded = false,
         runtime = "llama.cpp/libmtmd",
         backend = "cpu",
-        llamaRevision = "063d9c156e816ae3cf62db01f429a07a099afe97",
+        llamaRevision = "e1af89a6815737a5db132eee23a94a8ee58553e0",
         capabilities = ModalityCapabilities(
             textInput = true,
             imageInput = true,

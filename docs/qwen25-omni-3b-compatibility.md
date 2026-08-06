@@ -29,7 +29,7 @@ The pair is 3,642,962,976 bytes: about 3.64 decimal GB / 3.39 GiB, before app, c
 
 The exact sizes and hashes were captured from the revision-pinned Hugging Face LFS/Xet metadata. No large model was downloaded during this change. Installation still recalculates SHA-256 over downloaded bytes before promotion, so registry metadata alone is never treated as local verification.
 
-Pinned llama.cpp/libmtmd revision: `063d9c156e816ae3cf62db01f429a07a099afe97`.
+Pinned llama.cpp/libmtmd revision: `e1af89a6815737a5db132eee23a94a8ee58553e0`. This is the upstream merge commit for [llama.cpp PR #26262](https://github.com/ggml-org/llama.cpp/pull/26262), which fixes the Qwen2.5-Omni mmproj conversion regression. MobileCore does not follow a floating branch.
 
 ## Install lifecycle
 
@@ -48,10 +48,12 @@ The lifecycle service is wired to authenticated loopback-only `status`, `install
 
 ## Typed failures
 
-The artifact layer exposes the required wire values `unsupported_modality`, `artifact_missing`, `checksum_mismatch`, `insufficient_memory`, `insufficient_storage`, `model_load_failed`, `media_too_large`, and `cancelled`. Install-specific additions include `explicit_consent_required`, `license_acceptance_required`, `wifi_required`, `manifest_invalid`, `download_failed`, and `install_in_progress`.
+The artifact layer exposes the required wire values `unsupported_modality`, `artifact_missing`, `checksum_mismatch`, `insufficient_memory`, `insufficient_storage`, `model_load_failed`, `projector_incompatible`, `projector_load_failed`, `media_too_large`, and `cancelled`. A missing or truncated pinned mmproj is rejected as `artifact_missing` or `checksum_mismatch` before native loading; a wrong model-family pairing is `projector_incompatible`; a verified projector rejected by libmtmd is `projector_load_failed`. Install-specific additions include `explicit_consent_required`, `license_acceptance_required`, `wifi_required`, `manifest_invalid`, `download_failed`, and `install_in_progress`.
 
 ## Evidence boundary
 
-Unit coverage verifies the exact manifest, pair completeness, consent/license/Wi-Fi gates, independent storage and memory failures, `.part` verification, cancellation cleanup, load-pair gating, snapshot invalidation, and uninstall. It does not prove model loading, output quality, speed, peak PSS/RSS, temperature, or sustained stability.
+Unit coverage verifies the exact manifest, pair completeness, consent/license/Wi-Fi gates, independent storage and memory failures, `.part` verification, cancellation cleanup, load-pair gating, snapshot invalidation, typed projector failures, and uninstall. Android arm64 native compilation and an Android 16 emulator run also verify that the pinned llama.cpp revision loads a real Qwen3.5 0.8B GGUF/mmproj pair and completes an OpenAI-compatible image request through libmtmd. The bridge explicitly initializes the upstream `mtmd_input_text.text_len` field introduced after the previous pin; leaving it unset causes deterministic tokenize failure.
+
+That emulator run is a compatibility smoke test for the shared libmtmd bridge, not evidence that the 3.64 GB Qwen2.5-Omni pair fits or performs acceptably on a phone. No Qwen2.5-Omni artifact was downloaded for this change. It does not prove Omni output quality, speed, peak PSS/RSS, temperature, or sustained stability.
 
 Those runtime measurements must be collected separately for emulator and physical hardware. An emulator may validate API/JNI control flow but cannot substitute for physical-device performance, thermal, battery, or compatibility evidence.

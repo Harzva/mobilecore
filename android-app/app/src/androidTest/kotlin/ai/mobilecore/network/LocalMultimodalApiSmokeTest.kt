@@ -98,7 +98,20 @@ class LocalMultimodalApiSmokeTest {
                 .toString(),
         )
         assertEquals(400, incompatible.code)
-        assertEquals("invalid_request", errorCode(incompatible.body))
+        assertEquals("projector_incompatible", errorCode(incompatible.body))
+
+        backend.projectorLoadOk = false
+        val rejectedProjector = request(
+            method = "POST",
+            path = "/mobilecore/model/load",
+            body = JSONObject()
+                .put("model_id", "control-test-q4_k_m")
+                .put("projector_id", "mmproj-control-test-bf16")
+                .toString(),
+        )
+        assertEquals(400, rejectedProjector.code)
+        assertEquals("projector_load_failed", errorCode(rejectedProjector.body))
+        backend.projectorLoadOk = true
 
         val loaded = request(
             method = "POST",
@@ -310,6 +323,7 @@ class LocalMultimodalApiSmokeTest {
 
     private class RecordingBackend : RuntimeBackend, MultimodalRuntimeBackend {
         val mediaTypes = mutableListOf<String>()
+        var projectorLoadOk = true
         private var activeModel: String? = null
 
         override fun backendInfo() = BackendInfo(
@@ -349,8 +363,8 @@ class LocalMultimodalApiSmokeTest {
             projectorId: String,
             threads: Int,
         ): Boolean {
-            activeProjector = projectorId
-            return true
+            activeProjector = projectorId.takeIf { projectorLoadOk }
+            return projectorLoadOk
         }
 
         override fun multimodalStatus() = RuntimeMultimodalStatus(

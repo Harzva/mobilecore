@@ -75,7 +75,7 @@ data class OmniArtifactManifest(
 object Qwen25Omni3bArtifacts {
     const val REPOSITORY = "ggml-org/Qwen2.5-Omni-3B-GGUF"
     const val REVISION = "75f1b73b657a50f5092502799457ccb4a4a1f9df"
-    const val LLAMA_CPP_REVISION = "063d9c156e816ae3cf62db01f429a07a099afe97"
+    const val LLAMA_CPP_REVISION = "e1af89a6815737a5db132eee23a94a8ee58553e0"
 
     val manifest = OmniArtifactManifest(
         schemaVersion = 1,

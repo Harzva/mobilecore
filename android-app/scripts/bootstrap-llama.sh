@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LLAMA_DIR="${MOBILECORE_LLAMA_CPP_DIR:-$APP_DIR/third_party/llama.cpp}"
 LLAMA_REPO="${MOBILECORE_LLAMA_CPP_REPO:-https://github.com/ggml-org/llama.cpp.git}"
-LLAMA_REF="${MOBILECORE_LLAMA_CPP_REF:-063d9c156e816ae3cf62db01f429a07a099afe97}"
+LLAMA_REF="${MOBILECORE_LLAMA_CPP_REF:-e1af89a6815737a5db132eee23a94a8ee58553e0}"
 
 if [[ -d "$LLAMA_DIR/.git" ]]; then
   echo "Using existing llama.cpp checkout: $LLAMA_DIR"

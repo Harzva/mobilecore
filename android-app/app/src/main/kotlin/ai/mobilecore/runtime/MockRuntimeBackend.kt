@@ -164,8 +164,20 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         val rawAnswer = RuntimeBridge.mediaChat(modelId, mediaPath, modality, prompt, maxTokens)
         val payload = runCatching { JSONObject(rawAnswer) }.getOrNull()
         if (payload != null && !payload.optBoolean("ok", true)) {
+            val failureCode = payload.optString("code", "model_load_failed")
+                .ifBlank { "model_load_failed" }
+            val failureStage = when (payload.optString("message", "")) {
+                "libmtmd failed to decode media" -> "decode"
+                "libmtmd prompt tokenization failed" -> "tokenize"
+                "libmtmd media/prompt evaluation failed" -> "evaluate"
+                else -> "runtime"
+            }
+            Log.e(
+                "MobileCoreRuntime",
+                "media_chat_failed code=$failureCode stage=$failureStage modality=${modality.wireName}",
+            )
             throw MultimodalRuntimeException(
-                payload.optString("code", "model_load_failed").ifBlank { "model_load_failed" }
+                failureCode,
             )
         }
         val elapsed = (SystemClock.elapsedRealtime() - startedAt).toInt()

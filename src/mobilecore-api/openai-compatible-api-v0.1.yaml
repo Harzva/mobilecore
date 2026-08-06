@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MobileCore Local OpenAI-Compatible API
-  version: 0.1.4-rc2
+  version: 0.1.4-rc3
   description: |
     Loopback-only API for MobileCode and other local clients. Compatible GGUF
     main-model and mmproj pairs use llama.cpp/libmtmd for local image input.
