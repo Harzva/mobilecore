@@ -36,8 +36,8 @@ android {
         applicationId = "com.mobilecore.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.1.4-rc5"
+        versionCode = 10
+        versionName = "0.1.4-rc6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

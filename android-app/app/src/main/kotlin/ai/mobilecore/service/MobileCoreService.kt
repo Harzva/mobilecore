@@ -10,6 +10,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.util.Log
 import android.os.Build
 import android.os.IBinder
@@ -57,6 +58,11 @@ class MobileCoreService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Reassert foreground state before any model work on every delivery.
+        // This also acknowledges a foreground-start obligation if another
+        // entry point uses startForegroundService() in the future.
+        promoteToForeground("MobileCore API 可达：127.0.0.1:8080/v1")
+
         val requestedModelPath = intent?.getStringExtra("modelPath")
         val loadFirstModel = intent?.getBooleanExtra("loadFirstModel", false) == true
         val modelPath = when {
@@ -148,7 +154,16 @@ class MobileCoreService : Service() {
     }
 
     private fun promoteToForeground(content: String) {
-        startForeground(notificationId, buildNotification(content))
+        val notification = buildNotification(content)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                notificationId,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
+        } else {
+            startForeground(notificationId, notification)
+        }
     }
 
     private fun startWakeLock() {

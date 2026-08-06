@@ -39,7 +39,7 @@ class LocalApiServer(
     port: Int = 8080
 ) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
-    private val apiVersion = "0.1.4-rc5"
+    private val apiVersion = "0.1.4-rc6"
     private val startedAtMs = System.currentTimeMillis()
     private val requestsTotal = AtomicLong(0)
     private val requestsFailed = AtomicLong(0)
