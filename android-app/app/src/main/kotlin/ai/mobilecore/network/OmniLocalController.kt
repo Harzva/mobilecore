@@ -19,6 +19,7 @@ import ai.mobilecore.runtime.ModalityCapabilities
 import ai.mobilecore.runtime.ResourcePreflightHealth
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeBridge
+import ai.mobilecore.runtime.RuntimeModel
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
@@ -44,6 +45,7 @@ internal class OmniLocalController(
         runCatching { JSONObject(RuntimeBridge.info()) }.getOrElse { JSONObject() }
     },
     private val activeModelQuantization: (String?) -> String = { "unknown" },
+    private val activeModelLookup: (String?) -> RuntimeModel? = { null },
 ) {
     constructor(
         context: Context,
@@ -61,6 +63,9 @@ internal class OmniLocalController(
                 ?.quantization
                 ?: "unknown"
         },
+        activeModelLookup = { activeModel ->
+            activeModel?.let(modelManager::modelById)
+        },
     )
 
     fun health(): JSONObject {
@@ -71,6 +76,7 @@ internal class OmniLocalController(
         val main = requireNotNull(manifest.artifact(OmniArtifactRole.MAIN))
         val mmproj = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
         val activeModel = backend.metrics().activeModel
+        val activeRuntimeModel = activeModelLookup(activeModel)
         val qwenOmniLoaded = loaded && snapshot.pairVerified && activeModel.equals(
             main.fileName.removeSuffix(".gguf"),
             ignoreCase = true,
@@ -80,7 +86,7 @@ internal class OmniLocalController(
             activeModel = activeModel,
             quantization = activeModelQuantization(activeModel),
             modelLoaded = loaded,
-            runtime = "llama.cpp/libmtmd",
+            runtime = if (qwenOmniLoaded) "llama.cpp/libmtmd" else "llama.cpp",
             backend = "cpu",
             llamaRevision = Qwen25Omni3bArtifacts.LLAMA_CPP_REVISION,
             capabilities = ModalityCapabilities(
@@ -91,30 +97,69 @@ internal class OmniLocalController(
                 textOutput = loaded,
                 audioOutput = false,
             ),
-            mainArtifact = ArtifactHealth(
-                fileName = main.fileName,
-                expectedSha256 = snapshot.main.expectedSha256,
-                expectedBytes = snapshot.main.expectedBytes,
-                present = snapshot.main.installed,
-                verified = snapshot.main.verified,
-            ),
-            projectorArtifact = ArtifactHealth(
-                fileName = mmproj.fileName,
-                expectedSha256 = snapshot.mmproj.expectedSha256,
-                expectedBytes = snapshot.mmproj.expectedBytes,
-                present = snapshot.mmproj.installed,
-                verified = snapshot.mmproj.verified,
-            ),
-            preflight = ResourcePreflightHealth(
-                availableMemoryBytes = environment.availableMemoryBytes,
-                requiredMemoryBytes = manifest.minimumAvailableMemoryBytes,
-                availableStorageBytes = environment.availableStorageBytes,
-                requiredStorageBytes = manifest.requiredStorageBytes,
-            ),
+            mainArtifact = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
+                ArtifactHealth(
+                    fileName = File(activeRuntimeModel.path).name,
+                    expectedSha256 = "",
+                    expectedBytes = activeRuntimeModel.sizeBytes,
+                    present = true,
+                    verified = false,
+                )
+            } else {
+                ArtifactHealth(
+                    fileName = main.fileName,
+                    expectedSha256 = snapshot.main.expectedSha256,
+                    expectedBytes = snapshot.main.expectedBytes,
+                    present = snapshot.main.installed,
+                    verified = snapshot.main.verified,
+                )
+            },
+            projectorArtifact = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
+                ArtifactHealth(
+                    fileName = "",
+                    expectedSha256 = "",
+                    expectedBytes = 0L,
+                    present = false,
+                    verified = false,
+                )
+            } else {
+                ArtifactHealth(
+                    fileName = mmproj.fileName,
+                    expectedSha256 = snapshot.mmproj.expectedSha256,
+                    expectedBytes = snapshot.mmproj.expectedBytes,
+                    present = snapshot.mmproj.installed,
+                    verified = snapshot.mmproj.verified,
+                )
+            },
+            preflight = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
+                ordinaryModelPreflight(activeRuntimeModel, environment)
+            } else {
+                ResourcePreflightHealth(
+                    availableMemoryBytes = environment.availableMemoryBytes,
+                    requiredMemoryBytes = manifest.minimumAvailableMemoryBytes,
+                    availableStorageBytes = environment.availableStorageBytes,
+                    requiredStorageBytes = manifest.requiredStorageBytes,
+                )
+            },
         ).toJson()
         base.put("install", snapshotJson(snapshot, environment.wifiConnected))
         base.put("audio_sample_rate_hz", native.optInt("audioSampleRate", 0))
         return base
+    }
+
+    private fun ordinaryModelPreflight(
+        model: RuntimeModel,
+        environment: ai.mobilecore.omni.artifact.OmniInstallEnvironment,
+    ): ResourcePreflightHealth {
+        val contextOverheadBytes = 128L * 1024L * 1024L
+        val requiredMemoryBytes = (model.sizeBytes + contextOverheadBytes)
+            .coerceAtLeast(contextOverheadBytes)
+        return ResourcePreflightHealth(
+            availableMemoryBytes = environment.availableMemoryBytes,
+            requiredMemoryBytes = requiredMemoryBytes,
+            availableStorageBytes = environment.availableStorageBytes,
+            requiredStorageBytes = 0L,
+        )
     }
 
     fun status(): JSONObject {

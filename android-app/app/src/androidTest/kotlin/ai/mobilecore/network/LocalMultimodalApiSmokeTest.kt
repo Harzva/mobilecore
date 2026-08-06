@@ -29,16 +29,22 @@ import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Base64
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class LocalMultimodalApiSmokeTest {
     private val backend = RecordingBackend()
     private lateinit var server: LocalApiServer
+    private lateinit var controlModel: File
     private val port = 18_083
 
     @Before
     fun startServer() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        controlModel = context.filesDir.resolve("models/control-test-q4_k_m.gguf").apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46))
+        }
         server = LocalApiServer(
             backend = backend,
             modelManager = ModelManager(backend, context),
@@ -52,6 +58,48 @@ class LocalMultimodalApiSmokeTest {
     @After
     fun stopServer() {
         server.stop()
+        controlModel.delete()
+    }
+
+    @Test
+    fun modelControlUsesPublicIdsAndSupportsUnload() {
+        val models = request("GET", "/v1/models")
+        assertEquals(200, models.code)
+        assertFalse(models.body.contains("\"path\""))
+        val ids = JSONObject(models.body).getJSONArray("data")
+        assertTrue((0 until ids.length()).any {
+            ids.getJSONObject(it).getString("id") == "control-test-q4_k_m"
+        })
+
+        val recommendations = request("GET", "/v1/recommendations")
+        assertEquals(200, recommendations.code)
+        assertFalse(recommendations.body.contains("\"path\""))
+
+        val loaded = request(
+            method = "POST",
+            path = "/mobilecore/model/load",
+            body = JSONObject()
+                .put("model_id", "control-test-q4_k_m")
+                .put("context_length", 1024)
+                .toString(),
+        )
+        assertEquals(200, loaded.code)
+        assertEquals("control-test-q4_k_m", JSONObject(loaded.body).getString("model"))
+
+        val metrics = request("GET", "/metrics")
+        assertEquals("control-test-q4_k_m", JSONObject(metrics.body).getString("active_model"))
+
+        val rejected = request(
+            method = "POST",
+            path = "/mobilecore/model/load",
+            body = JSONObject().put("model_id", "../../private").toString(),
+        )
+        assertEquals(400, rejected.code)
+        assertEquals("artifact_missing", errorCode(rejected.body))
+
+        val unloaded = request("POST", "/mobilecore/model/unload", "{}")
+        assertEquals(200, unloaded.code)
+        assertFalse(JSONObject(unloaded.body).getBoolean("model_loaded"))
     }
 
     @Test
@@ -141,6 +189,12 @@ class LocalMultimodalApiSmokeTest {
         val mediaCache = InstrumentationRegistry.getInstrumentation().targetContext
             .cacheDir.resolve("openai-media")
         assertTrue(mediaCache.listFiles().isNullOrEmpty())
+
+        val metrics = JSONObject(request("GET", "/metrics").body)
+        assertTrue(metrics.getLong("uptime_seconds") >= 0L)
+        assertTrue(metrics.getLong("requests_total") >= 6L)
+        assertTrue(metrics.getLong("requests_failed") >= 3L)
+        assertTrue(metrics.getDouble("average_decode_tokens_per_second") >= 0.0)
     }
 
     private fun structuredMediaRequest(part: JSONObject): JSONObject = JSONObject().apply {
@@ -228,6 +282,7 @@ class LocalMultimodalApiSmokeTest {
 
     private class RecordingBackend : RuntimeBackend, MultimodalRuntimeBackend {
         val mediaTypes = mutableListOf<String>()
+        private var activeModel: String? = null
 
         override fun backendInfo() = BackendInfo(
             id = "instrumented-fake",
@@ -238,12 +293,17 @@ class LocalMultimodalApiSmokeTest {
             status = "ready",
         )
 
-        override fun loadModel(modelPath: String, options: LoadOptions) =
-            LoadResult(false, "smoke-model", 0, 0)
+        override fun loadModel(modelPath: String, options: LoadOptions): LoadResult {
+            activeModel = File(modelPath).nameWithoutExtension
+            return LoadResult(true, requireNotNull(activeModel), 1, 8)
+        }
 
-        override fun unloadModel() = true
+        override fun unloadModel(): Boolean {
+            activeModel = null
+            return true
+        }
 
-        override fun isModelLoaded() = false
+        override fun isModelLoaded() = activeModel != null
 
         override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
             result(options.model, "text-ok")
@@ -251,7 +311,7 @@ class LocalMultimodalApiSmokeTest {
         override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
             emptySequence()
 
-        override fun metrics() = RuntimeMetrics(activeModel = null, backend = "instrumented-fake")
+        override fun metrics() = RuntimeMetrics(activeModel = activeModel, backend = "instrumented-fake")
 
         override fun mediaChat(
             modelId: String,

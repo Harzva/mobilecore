@@ -3296,7 +3296,6 @@ class MainActivity : Activity() {
             for (i in 0 until recommendations.length()) {
                 val recommendation = recommendations.optJSONObject(i) ?: continue
                 val modelId = recommendation.optString("model_id", "unknown")
-                val path = recommendation.optString("path", "")
                 val fit = recommendation.optString("fit", "marginal")
                 val score = recommendation.optDouble("score", 0.0)
                 val expected = recommendation.optDouble("expected_tokens_per_second", 0.0)
@@ -3312,7 +3311,6 @@ class MainActivity : Activity() {
                 recommendationContainer.addView(
                     buildRecommendationRow(
                         modelId = modelId,
-                        path = path,
                         score = score,
                         fit = fit,
                         estimatedMemoryMb = recommendation.optLong("estimated_memory_mb", 0L),
@@ -3494,7 +3492,6 @@ class MainActivity : Activity() {
 
     private fun buildRecommendationRow(
         modelId: String,
-        path: String,
         score: Double,
         fit: String,
         estimatedMemoryMb: Long,
@@ -3531,10 +3528,10 @@ class MainActivity : Activity() {
                     if (!loaded) {
                         addView(
                             pillButton("加载", Palette.sky, Palette.blue) {
-                                if (path.isNotBlank()) {
-                                    loadRecommendedModel(path)
+                                if (modelId.isNotBlank() && modelId != "unknown") {
+                                    loadRecommendedModel(modelId)
                                 } else {
-                                    Toast.makeText(this@MainActivity, "模型路径为空，无法加载", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@MainActivity, "模型标识无效，无法加载", Toast.LENGTH_SHORT).show()
                                 }
                             }.apply {
                                 gravity = Gravity.CENTER
@@ -3683,11 +3680,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadRecommendedModel(path: String) {
+    private fun loadRecommendedModel(modelId: String) {
         Thread {
             try {
                 val requestBody = JSONObject().apply {
-                    put("path", path)
+                    put("model_id", modelId)
                 }.toString()
                 val connection = (URL("http://$serviceHost:$servicePort/mobilecore/model/load").openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
@@ -3704,7 +3701,7 @@ class MainActivity : Activity() {
                 val response = JSONObject(body)
                 runOnUiThread {
                     if (status in 200..299 && response.optBoolean("ok", false)) {
-                        val modelName = response.optString("model", path.substringAfterLast('/'))
+                        val modelName = response.optString("model", modelId)
                         Toast.makeText(this@MainActivity, "已加载 $modelName", Toast.LENGTH_SHORT).show()
                         updateStatus("模型已加载：$modelName")
                     } else {

@@ -55,7 +55,6 @@ Authorization: Bearer local
       "created": 1782000000,
       "owned_by": "mobilecore",
       "mobilecore": {
-        "path": "/storage/emulated/0/MobileCore/models/qwen3-4b-q4_k_m.gguf",
         "format": "gguf",
         "backend": "llama.cpp",
         "size_bytes": 2600000000,
@@ -187,6 +186,8 @@ GET /health
 
 能力布尔值表示当前加载 runtime 的能力，不是模型卡能力。GGUF 路线不得把 video 或 speech output 标为可用。
 
+`preflight` 同样绑定当前 runtime：普通文本 GGUF 使用当前模型文件大小加运行时上下文开销估算；只有已验证的 Omni 主模型与 projector 成对加载时，才返回 Omni 安装清单的内存/存储要求。普通 GGUF 未经过固定清单摘要校验时，`artifacts.main.verified=false` 且摘要为 `null`，不得伪报已验证。
+
 ## 7. GET /metrics
 
 ### 请求
@@ -220,6 +221,28 @@ OpenAI-compatible API 之外的能力放到：
 ```text
 /mobilecore/*
 ```
+
+### POST /mobilecore/model/load
+
+按公开的模型标识加载已经安装并通过扫描的 GGUF。普通客户端不得提交或保存绝对路径。
+
+```json
+{
+  "model_id": "qwen2.5-0.5b-instruct-q4_k_m",
+  "context_length": 2048,
+  "threads": 4
+}
+```
+
+服务端只会解析应用允许的模型目录；不存在、越界或非 GGUF 文件统一返回 `artifact_missing`。旧版 `path` 字段只保留给受控宿主 QA，MobileCode 和 MobileCore UI 都只使用 `model_id`。
+
+### POST /mobilecore/model/unload
+
+卸载当前模型并释放推理资源，不删除模型文件。请求体为 `{}`；响应包含 `previous_model`、`model_loaded` 和 `backend`。
+
+### GET /v1/recommendations
+
+返回适合当前设备的已安装模型、适配等级、内存估算、量化方式和预期性能。响应不包含模型文件路径；加载推荐模型时使用返回的 `model_id`。
 
 ### GET /mobilecore/device-profile
 
@@ -325,9 +348,9 @@ MobileCode provider 配置：
   "apiKey": "local",
   "modelsEndpoint": "/models",
   "chatEndpoint": "/chat/completions",
-  "defaultModel": "qwen3-4b-q4_k_m",
+  "defaultModel": "mobilecore-active",
   "stream": true
 }
 ```
 
-MobileCode 不应该依赖 `/mobilecore/*` 才能完成基本聊天。`/mobilecore/*` 只用于状态、跑分、推荐与高级联动。
+`mobilecore-active` 是动态路由占位符；MobileCode 每次请求前通过 `/health` 解析真实的 `active_model`，并以 `/v1/models`、`/v1/recommendations` 和模型控制接口完成能力协商。MobileCode 不应该依赖 `/mobilecore/*` 才能完成基本聊天；扩展接口只用于状态、跑分、推荐与高级联动。

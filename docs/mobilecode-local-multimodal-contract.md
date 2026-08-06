@@ -59,6 +59,9 @@ MobileCode may display MobileCore’s artifact/preflight state, but MobileCore o
 
 Authenticated lifecycle routes are:
 
+- `POST /mobilecore/model/load` with `{"model_id":"<id>"}` for an already installed GGUF model
+- `POST /mobilecore/model/unload` to release the active text model without deleting artifacts
+
 - `GET /mobilecore/omni/status`
 - `POST /mobilecore/omni/install`
 - `POST /mobilecore/omni/cancel`
@@ -67,3 +70,5 @@ Authenticated lifecycle routes are:
 - `POST` or `DELETE /mobilecore/omni/uninstall`
 
 `install` requires `{"explicit_consent":true,"accepted_license_id":"qwen-research","wifi_only":true}`. It starts an asynchronous app-private download only after preflight passes; MobileCode polls `status` and never receives an artifact path.
+
+MobileCode must switch ordinary installed models by public `model_id`. The legacy `path` load field remains accepted for host QA compatibility, but must not be emitted, persisted, or submitted by MobileCode.
