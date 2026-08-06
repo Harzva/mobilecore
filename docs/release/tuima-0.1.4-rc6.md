@@ -11,9 +11,12 @@ This candidate hardens MobileCore's Android background continuity while preservi
 
 ## Emulator evidence
 
+- GitHub Actions [run 31129567590](https://github.com/Harzva/mobilecore/actions/runs/31129567590) passed JVM tests, Android Lint, pinned llama.cpp bootstrap, and upload-signed APK/AAB builds from commit `7cc2f463073db7dee988db1fdd4b9e2d200bce7b`.
+- Official upload-signed APK SHA-256: `3af8a9b709d9e4229faef4c8bae25e86ee020bbe92040a6b6e4aab5280bb8128`.
+- Official upload-signed AAB SHA-256: `50217b010cc015590b6098ed536f7dcae543a6644158486a521163b190b403d2`.
 - Android 16 ARM64 emulator with MobileCore `0.1.4-rc6` and MobileCode `0.1.77+67`.
 - Real Qwen2.5 0.5B Q4_K_M model loaded through llama.cpp.
-- 40 authenticated `/health` polls over about two minutes while MobileCode remained resumed: 40/40 passed.
+- The exact upload-signed APK was update-installed without deleting the real model. Its `/health` response reported `background_restricted=false`, then 40 authenticated polls over about two minutes while MobileCode remained resumed passed 40/40 (redacted artifact ID `20260806T231336Z`).
 - Final state: foreground service true, both processes alive, MobileCode foreground true, background restriction false, process freezing false, and no FGS timeout, ANR, OOM, or SIGABRT safety finding.
 - A controlled real-model request returned HTTP 200 and completed one inference with zero request failures; only counters and timing metadata were retained.
 - A deliberately background-restricted emulator state was rejected before the dual-app lane and then restored through the QA harness. This validates detection only; the App never changes the restriction itself.
