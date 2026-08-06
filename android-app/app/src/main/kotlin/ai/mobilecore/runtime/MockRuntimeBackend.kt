@@ -148,6 +148,8 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         }
     }
 
+    override fun cancelInference(): Boolean = RuntimeBridge.cancel()
+
     override fun mediaChat(
         modelId: String,
         mediaPath: String,
@@ -247,6 +249,7 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
                 model = payload.optString("model", options.model),
                 message = message,
                 finishReason = if (payload.optBoolean("ok", true)) "stop" else "error",
+                failureCode = payload.optString("code").ifBlank { null },
                 promptTokens = promptTokens,
                 completionTokens = completionTokens,
                 totalTokens = payload.optInt("totalTokens", promptTokens + completionTokens),

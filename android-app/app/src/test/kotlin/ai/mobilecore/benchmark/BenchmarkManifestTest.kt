@@ -53,7 +53,7 @@ class BenchmarkManifestTest {
               "spec_version":2,
               "score_algorithm_id":"tuima-score-v2",
               "platform_population":"android-arm64-v8a",
-              "runtime_version":"0.1.4-rc3",
+              "runtime_version":"0.1.4-rc4",
               "llama_cpp_revision":"e1af89a6815737a5db132eee23a94a8ee58553e0",
               "model":{
                 "id":"qwen2.5-0.5b-instruct-q4_k_m",

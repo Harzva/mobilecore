@@ -29,6 +29,7 @@ internal enum class ApiFailureCode(val wireValue: String) {
     PROJECTOR_INCOMPATIBLE("projector_incompatible"),
     PROJECTOR_LOAD_FAILED("projector_load_failed"),
     MEDIA_TOO_LARGE("media_too_large"),
+    RUNTIME_BUSY("runtime_busy"),
     CANCELLED("cancelled"),
     REMOTE_MEDIA_NOT_ALLOWED("remote_media_not_allowed"),
     LOCAL_MEDIA_NOT_ALLOWED("local_media_not_allowed"),
@@ -500,7 +501,17 @@ internal object OpenAiChatDispatcher {
         request: ParsedOpenAiChatRequest,
         options: ChatOptions,
     ): ChatResult {
-        val media = request.media ?: return backend.chat(request.messages, options)
+        val media = request.media
+        if (media == null) {
+            val result = backend.chat(request.messages, options)
+            if (result.finishReason == "error") {
+                val code = ApiFailureCode.values().firstOrNull {
+                    it.wireValue == result.failureCode
+                } ?: ApiFailureCode.MODEL_LOAD_FAILED
+                fail(code, publicRuntimeMessage(code))
+            }
+            return result
+        }
         val multimodal = backend as? MultimodalRuntimeBackend
             ?: fail(ApiFailureCode.UNSUPPORTED_MODALITY, "runtime does not support media input")
         return try {
@@ -561,6 +572,7 @@ private fun publicRuntimeMessage(code: ApiFailureCode): String = when (code) {
     ApiFailureCode.PROJECTOR_INCOMPATIBLE -> "projector is incompatible with the selected model"
     ApiFailureCode.PROJECTOR_LOAD_FAILED -> "projector failed to load"
     ApiFailureCode.MEDIA_TOO_LARGE -> "media exceeds the configured limit"
+    ApiFailureCode.RUNTIME_BUSY -> "local inference runtime is busy"
     else -> "multimodal model inference failed"
 }
 

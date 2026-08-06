@@ -23,6 +23,17 @@ class MobileCoreHealthContractTest {
     }
 
     @Test
+    fun publishesTheStrictMobileCoreClientV2CompatibilityRange() {
+        val protocol = fixture().toJson().getJSONObject("protocol")
+
+        assertEquals("mobilecore.local", protocol.getString("name"))
+        assertEquals(2, protocol.getInt("major"))
+        assertEquals(0, protocol.getInt("minor"))
+        assertEquals(2, protocol.getInt("min_client_major"))
+        assertEquals(2, protocol.getInt("max_client_major"))
+    }
+
+    @Test
     fun exposesExpectedDigestsWithoutClaimingUnverifiedFilesAreInstalled() {
         val json = fixture().toJson().getJSONObject("artifacts")
 

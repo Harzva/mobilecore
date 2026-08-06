@@ -249,12 +249,7 @@ std::string chat_json(
 }
 
 #ifdef MOBILECORE_USE_LLAMA_CPP
-std::string format_mtmd_user_prompt(const std::string& user_prompt) {
-    const char* marker_value = g_mtmd_context == nullptr ? nullptr : mtmd_get_marker(g_mtmd_context);
-    const std::string marker = marker_value == nullptr || marker_value[0] == '\0'
-        ? mtmd_default_marker()
-        : marker_value;
-    const std::string content = marker + "\n" + user_prompt;
+std::string format_user_prompt(const std::string& content) {
     const char* chat_template = g_model == nullptr ? nullptr : llama_model_chat_template(g_model, nullptr);
     if (chat_template != nullptr) {
         const llama_chat_message message = {"user", content.c_str()};
@@ -283,6 +278,14 @@ std::string format_mtmd_user_prompt(const std::string& user_prompt) {
     }
     return std::string("<|im_start|>user\n") + content +
         "<|im_end|>\n<|im_start|>assistant\n";
+}
+
+std::string format_mtmd_user_prompt(const std::string& user_prompt) {
+    const char* marker_value = g_mtmd_context == nullptr ? nullptr : mtmd_get_marker(g_mtmd_context);
+    const std::string marker = marker_value == nullptr || marker_value[0] == '\0'
+        ? mtmd_default_marker()
+        : marker_value;
+    return format_user_prompt(marker + "\n" + user_prompt);
 }
 #endif
 } // namespace
@@ -685,10 +688,11 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
     if (g_model != nullptr && g_context != nullptr) {
         const auto total_start = std::chrono::steady_clock::now();
         const llama_vocab* vocab = llama_model_get_vocab(g_model);
+        const std::string formatted_prompt = format_user_prompt(prompt_text);
         const int32_t n_prompt = -llama_tokenize(
             vocab,
-            prompt_text.c_str(),
-            static_cast<int32_t>(prompt_text.size()),
+            formatted_prompt.c_str(),
+            static_cast<int32_t>(formatted_prompt.size()),
             nullptr,
             0,
             true,
@@ -702,8 +706,8 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         std::vector<llama_token> prompt_tokens(n_prompt);
         const int32_t tokenized = llama_tokenize(
             vocab,
-            prompt_text.c_str(),
-            static_cast<int32_t>(prompt_text.size()),
+            formatted_prompt.c_str(),
+            static_cast<int32_t>(formatted_prompt.size()),
             prompt_tokens.data(),
             static_cast<int32_t>(prompt_tokens.size()),
             true,
@@ -828,7 +832,8 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
             decode_ms,
             total_ms,
             decode_tps,
-            memory_mb
+            memory_mb,
+            cancelled ? "cancelled" : ""
         );
         return env->NewStringUTF(json.c_str());
     }

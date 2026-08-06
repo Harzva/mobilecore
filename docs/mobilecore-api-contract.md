@@ -158,7 +158,14 @@ GET /health
 {
   "status": "ok",
   "service": "mobilecore",
-  "version": "0.1.3-rc2",
+  "version": "0.1.4-rc4",
+  "protocol": {
+    "name": "mobilecore.local",
+    "major": 2,
+    "minor": 0,
+    "min_client_major": 2,
+    "max_client_major": 2
+  },
   "model_loaded": true,
   "active_model": "Qwen2.5-Omni-3B-Q4_K_M",
   "quantization": "Q4_K_M",
@@ -186,6 +193,8 @@ GET /health
 
 能力布尔值表示当前加载 runtime 的能力，不是模型卡能力。GGUF 路线不得把 video 或 speech output 标为可用。
 
+`protocol` 是 MobileCoreClient 控制协议，不等同于 App 版本。MobileCode 必须在模型加载、卸载、切换和推理前确认协议名称为 `mobilecore.local`、major 为 2，且客户端 major 落在服务端声明的支持范围内；不兼容时禁止继续控制并返回类型化错误。
+
 `preflight` 同样绑定当前 runtime：普通文本 GGUF 使用当前模型文件大小加运行时上下文开销估算；只有已验证的 Omni 主模型与 projector 成对加载时，才返回 Omni 安装清单的内存/存储要求。普通 GGUF 未经过固定清单摘要校验时，`artifacts.main.verified=false` 且摘要为 `null`，不得伪报已验证。
 
 ## 7. GET /metrics
@@ -205,7 +214,10 @@ Authorization: Bearer local
   "backend": "llama.cpp",
   "uptime_seconds": 3600,
   "requests_total": 48,
+  "requests_completed": 46,
   "requests_failed": 1,
+  "inference_cancel_requests": 1,
+  "inference_busy_rejections": 0,
   "last_decode_tokens_per_second": 18.6,
   "average_decode_tokens_per_second": 17.9,
   "last_first_token_ms": 730,
@@ -239,6 +251,19 @@ OpenAI-compatible API 之外的能力放到：
 ### POST /mobilecore/model/unload
 
 卸载当前模型并释放推理资源，不删除模型文件。请求体为 `{}`；响应包含 `previous_model`、`model_loaded` 和 `backend`。
+
+### POST /mobilecore/inference/cancel
+
+MobileCode 在本地推理超时或用户暂停 Agent 时调用该认证回环端点。MobileCore 将幂等取消信号转发给原生 runtime，停止 token 解码；原请求返回类型化的 `cancelled` 失败。取消请求不携带 prompt、媒体、凭据或生成内容。
+
+```json
+{
+  "ok": true,
+  "cancel_requested": true
+}
+```
+
+MobileCore 同一时间只允许一个主模型推理请求。并发 chat 或推理期间的模型加载、卸载会以 `runtime_busy` 拒绝，避免多个 NanoHTTPD 请求同时修改同一个 llama context。
 
 ### GET /v1/recommendations
 
@@ -355,4 +380,4 @@ MobileCode provider 配置：
 }
 ```
 
-`mobilecore-active` 是动态路由占位符；MobileCode 每次请求前通过 `/health` 解析真实的 `active_model`，并以 `/v1/models`、`/v1/recommendations` 和模型控制接口完成能力协商。MobileCode 不应该依赖 `/mobilecore/*` 才能完成基本聊天；扩展接口只用于状态、跑分、推荐与高级联动。
+`mobilecore-active` 是动态路由占位符；MobileCode 每次请求前通过 `/health` 完成 v2 协议握手并解析真实的 `active_model`，再以 `/v1/models`、`/v1/recommendations` 和模型控制接口完成能力协商。MobileCode 不应该依赖 `/mobilecore/*` 才能完成基本聊天；扩展接口只用于状态、跑分、推荐与高级联动。

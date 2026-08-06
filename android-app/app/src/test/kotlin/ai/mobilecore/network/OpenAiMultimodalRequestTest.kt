@@ -59,6 +59,29 @@ class OpenAiMultimodalRequestTest {
     }
 
     @Test
+    fun nativeTextCancellationPreservesTypedFailureCode() {
+        val parsed = parser().parse(requestWithContent("cancel this request"))
+        val backend = object : RecordingTextBackend() {
+            override fun chat(messages: List<ChatMessage>, options: ChatOptions) = ChatResult(
+                model = options.model,
+                message = "partial output must not determine the failure type",
+                finishReason = "error",
+                failureCode = "cancelled",
+            )
+        }
+
+        parsed.use {
+            assertFailure(ApiFailureCode.CANCELLED) {
+                OpenAiChatDispatcher.dispatch(
+                    backend,
+                    it,
+                    ChatOptions(model = "local-model"),
+                )
+            }
+        }
+    }
+
+    @Test
     fun structuredTextContentIsPreserved() {
         val content = JSONArray()
             .put(JSONObject().put("type", "text").put("text", "first"))

@@ -63,6 +63,7 @@ data class ChatResult(
     val model: String,
     val message: String,
     val finishReason: String = "stop",
+    val failureCode: String? = null,
     val promptTokens: Int = 0,
     val completionTokens: Int = 0,
     val totalTokens: Int = 0,
@@ -214,5 +215,6 @@ interface RuntimeBackend {
     fun isModelLoaded(): Boolean
     fun chat(messages: List<ChatMessage>, options: ChatOptions): ChatResult
     fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken>
+    fun cancelInference(): Boolean = false
     fun metrics(): RuntimeMetrics
 }
