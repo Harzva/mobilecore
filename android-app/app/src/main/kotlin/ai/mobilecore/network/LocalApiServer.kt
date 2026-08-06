@@ -28,6 +28,7 @@ import java.io.IOException
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.DoubleAdder
 
 class LocalApiServer(
@@ -38,11 +39,14 @@ class LocalApiServer(
     port: Int = 8080
 ) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
-    private val apiVersion = "0.1.4-rc3"
+    private val apiVersion = "0.1.4-rc4"
     private val startedAtMs = System.currentTimeMillis()
     private val requestsTotal = AtomicLong(0)
     private val requestsFailed = AtomicLong(0)
     private val requestsCompleted = AtomicLong(0)
+    private val inferenceCancelRequests = AtomicLong(0)
+    private val inferenceBusyRejections = AtomicLong(0)
+    private val inferenceActive = AtomicBoolean(false)
     private val decodeTokensPerSecondTotal = DoubleAdder()
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
@@ -79,6 +83,10 @@ class LocalApiServer(
 
             isChatRoute(session) && method == Method.POST -> {
                 if (!hasAuth(session)) unauthorized() else onChat(session)
+            }
+
+            isInferenceCancelRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else onCancelInference(session)
             }
 
             isMetricsRoute(session) && method == Method.GET -> {
@@ -130,11 +138,13 @@ class LocalApiServer(
             }
 
             isModelLoadRoute(session) && method == Method.POST -> {
-                if (!hasAuth(session)) unauthorized() else onLoadModel(session)
+                if (!hasAuth(session)) unauthorized()
+                else withRuntimeOwnership(session) { onLoadModel(session) }
             }
 
             isModelUnloadRoute(session) && method == Method.POST -> {
-                if (!hasAuth(session)) unauthorized() else onUnloadModel()
+                if (!hasAuth(session)) unauthorized()
+                else withRuntimeOwnership(session) { onUnloadModel() }
             }
 
             isModelDirsRoute(session) && method == Method.GET -> {
@@ -158,11 +168,13 @@ class LocalApiServer(
             }
 
             isOmniLoadRoute(session) && method == Method.POST -> {
-                if (!hasAuth(session)) unauthorized() else onOmniLoad(session)
+                if (!hasAuth(session)) unauthorized()
+                else withRuntimeOwnership(session) { onOmniLoad(session) }
             }
 
             isOmniUninstallRoute(session) && (method == Method.POST || method == Method.DELETE) -> {
-                if (!hasAuth(session)) unauthorized() else omniResult(omniController.uninstall())
+                if (!hasAuth(session)) unauthorized()
+                else withRuntimeOwnership(session) { omniResult(omniController.uninstall()) }
             }
 
             else -> newFixedLengthResponse(
@@ -180,6 +192,10 @@ class LocalApiServer(
 
     private fun isChatRoute(session: IHTTPSession): Boolean {
         return session.uri == "/v1/chat/completions"
+    }
+
+    private fun isInferenceCancelRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/mobilecore/inference/cancel"
     }
 
     private fun isHealthRoute(session: IHTTPSession): Boolean {
@@ -275,15 +291,23 @@ class LocalApiServer(
                 "request exceeds the configured size limit",
             )
         }
+        val body = parseBody(session)
+        if (body.toByteArray(Charsets.UTF_8).size.toLong() > MAX_CHAT_REQUEST_BYTES) {
+            requestsFailed.incrementAndGet()
+            return apiError(
+                ApiFailureCode.MEDIA_TOO_LARGE,
+                "request exceeds the configured size limit",
+            )
+        }
+        if (!inferenceActive.compareAndSet(false, true)) {
+            requestsFailed.incrementAndGet()
+            inferenceBusyRejections.incrementAndGet()
+            return apiError(
+                ApiFailureCode.RUNTIME_BUSY,
+                "local inference runtime is busy",
+            )
+        }
         return try {
-            val body = parseBody(session)
-            if (body.toByteArray(Charsets.UTF_8).size.toLong() > MAX_CHAT_REQUEST_BYTES) {
-                requestsFailed.incrementAndGet()
-                return apiError(
-                    ApiFailureCode.MEDIA_TOO_LARGE,
-                    "request exceeds the configured size limit",
-                )
-            }
             val request = JSONObject(body)
             val model = request.optString("model", modelManager.defaultModelId())
             val options = ChatOptions(
@@ -381,7 +405,19 @@ class LocalApiServer(
             requestsFailed.incrementAndGet()
             Log.e(logTag, "chat_failed code=invalid_request type=${e.javaClass.simpleName}")
             apiError(ApiFailureCode.INVALID_REQUEST, "invalid request")
+        } finally {
+            inferenceActive.set(false)
         }
+    }
+
+    private fun onCancelInference(session: IHTTPSession): Response {
+        parseBody(session)
+        inferenceCancelRequests.incrementAndGet()
+        val accepted = backend.cancelInference()
+        return okResponse(JSONObject().apply {
+            put("ok", accepted)
+            put("cancel_requested", accepted)
+        }.toString(2))
     }
 
     private fun onLoadModel(session: IHTTPSession): Response {
@@ -610,7 +646,10 @@ class LocalApiServer(
         payload.put("backend", metrics.backend)
         payload.put("uptime_seconds", ((System.currentTimeMillis() - startedAtMs) / 1000L).coerceAtLeast(0L))
         payload.put("requests_total", requestsTotal.get())
+        payload.put("requests_completed", completed)
         payload.put("requests_failed", requestsFailed.get())
+        payload.put("inference_cancel_requests", inferenceCancelRequests.get())
+        payload.put("inference_busy_rejections", inferenceBusyRejections.get())
         payload.put("last_prompt_eval_ms", metrics.promptEvalMs)
         payload.put("last_decode_tokens_per_second", metrics.decodeTokensPerSecond)
         payload.put("average_decode_tokens_per_second", averageDecodeTokensPerSecond)
@@ -911,6 +950,26 @@ class LocalApiServer(
             OpenAiApiError.json(code, message),
         )
 
+    private fun runtimeBusy(): Response {
+        inferenceBusyRejections.incrementAndGet()
+        return apiError(ApiFailureCode.RUNTIME_BUSY, "local inference runtime is busy")
+    }
+
+    private inline fun withRuntimeOwnership(
+        session: IHTTPSession? = null,
+        block: () -> Response,
+    ): Response {
+        if (!inferenceActive.compareAndSet(false, true)) {
+            session?.let(::parseBody)
+            return runtimeBusy()
+        }
+        return try {
+            block()
+        } finally {
+            inferenceActive.set(false)
+        }
+    }
+
     private fun omniResult(result: OmniControllerResult, acceptedStatus: Boolean = false): Response {
         val status = when {
             !result.accepted -> Response.Status.BAD_REQUEST
@@ -922,6 +981,7 @@ class LocalApiServer(
 
     fun cancelBackgroundOperations() {
         omniController.cancel()
+        backend.cancelInference()
     }
 
     private companion object {

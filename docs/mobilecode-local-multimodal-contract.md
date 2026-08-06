@@ -2,6 +2,25 @@
 
 MobileCode continues to use `http://127.0.0.1:8080/v1`. The provider must read the health/capability contract before enabling attachment UI or selecting the local route. Loopback-only transport is mandatory.
 
+## Protocol compatibility
+
+Every `/health` response must identify the loopback control protocol separately from the MobileCore app version:
+
+```json
+{
+  "service": "mobilecore",
+  "protocol": {
+    "name": "mobilecore.local",
+    "major": 2,
+    "minor": 0,
+    "min_client_major": 2,
+    "max_client_major": 2
+  }
+}
+```
+
+MobileCode v2 must reject a missing, malformed, differently named, or unsupported major protocol before model control or inference. A minor increase may add fields but must preserve v2 semantics. This is a compatibility handshake, not authentication; loopback binding, bearer authorization on protected routes, Android app isolation, and the MobileCode approval boundary still apply independently.
+
 ## Capability truth
 
 The health response must expose these booleans independently:
@@ -64,6 +83,7 @@ Authenticated lifecycle routes are:
 - `POST /mobilecore/model/load` with `{"model_id":"<id>"}` for an already installed GGUF model
 - `POST /mobilecore/model/load` may include a public `projector_id` when automatic pairing is ambiguous; MobileCore returns `projector_incompatible` for a projector from another directory or model family, and `projector_load_failed` when the selected projector passes discovery but libmtmd rejects it
 - `POST /mobilecore/model/unload` to release the active text model without deleting artifacts
+- `POST /mobilecore/inference/cancel` to stop native decoding after a MobileCode timeout or explicit user pause; request content is never echoed into this control call
 
 - `GET /mobilecore/omni/status`
 - `POST /mobilecore/omni/install`

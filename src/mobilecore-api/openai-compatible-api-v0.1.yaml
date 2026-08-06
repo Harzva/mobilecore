@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MobileCore Local OpenAI-Compatible API
-  version: 0.1.4-rc3
+  version: 0.1.4-rc4
   description: |
     Loopback-only API for MobileCode and other local clients. Compatible GGUF
     main-model and mmproj pairs use llama.cpp/libmtmd for local image input.
@@ -84,12 +84,32 @@ paths:
                   backend: {type: string}
                   uptime_seconds: {type: integer, format: int64}
                   requests_total: {type: integer, format: int64}
+                  requests_completed: {type: integer, format: int64}
                   requests_failed: {type: integer, format: int64}
+                  inference_cancel_requests: {type: integer, format: int64}
+                  inference_busy_rejections: {type: integer, format: int64}
                   last_decode_tokens_per_second: {type: number}
                   average_decode_tokens_per_second: {type: number}
                   last_first_token_ms: {type: integer}
                   last_total_ms: {type: integer}
                   memory_peak_mb: {type: integer}
+  /mobilecore/inference/cancel:
+    post:
+      summary: Request cancellation of the active native inference
+      description: Idempotent, loopback-only cancellation used when a client times out or the user pauses a run.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cancellation signal forwarded to the runtime
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, cancel_requested]
+                properties:
+                  ok: {type: boolean}
+                  cancel_requested: {type: boolean}
   /v1/recommendations:
     get:
       summary: Recommend installed models for the current device
@@ -433,11 +453,13 @@ components:
         verified: {type: boolean}
     HealthResponse:
       type: object
-      required: [status, service, version, model_loaded, quantization, runtime, backend, capabilities, artifacts, preflight]
+      required: [status, service, version, protocol, model_loaded, quantization, runtime, backend, capabilities, artifacts, preflight]
       properties:
         status: {type: string, example: ok}
         service: {type: string, example: mobilecore}
         version: {type: string}
+        protocol:
+          $ref: '#/components/schemas/ClientProtocol'
         model_loaded: {type: boolean}
         active_model: {type: string, nullable: true}
         quantization: {type: string}
@@ -458,6 +480,15 @@ components:
             storage: {type: object}
             ok: {type: boolean}
             failure_code: {type: string, nullable: true}
+    ClientProtocol:
+      type: object
+      required: [name, major, minor, min_client_major, max_client_major]
+      properties:
+        name: {type: string, enum: [mobilecore.local]}
+        major: {type: integer, minimum: 1}
+        minor: {type: integer, minimum: 0}
+        min_client_major: {type: integer, minimum: 1}
+        max_client_major: {type: integer, minimum: 1}
     OmniInstallRequest:
       type: object
       required: [explicit_consent, accepted_license_id]

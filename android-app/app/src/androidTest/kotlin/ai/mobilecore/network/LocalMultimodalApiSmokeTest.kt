@@ -31,6 +31,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Base64
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class LocalMultimodalApiSmokeTest {
@@ -44,6 +47,7 @@ class LocalMultimodalApiSmokeTest {
     @Before
     fun startServer() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.cacheDir.resolve("openai-media").deleteRecursively()
         controlModel = context.filesDir.resolve("models/control-test-q4_k_m.gguf").apply {
             parentFile?.mkdirs()
             writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46))
@@ -148,6 +152,11 @@ class LocalMultimodalApiSmokeTest {
         val health = request("GET", "/health")
         assertEquals(200, health.code)
         val healthJson = JSONObject(health.body)
+        val protocol = healthJson.getJSONObject("protocol")
+        assertEquals("mobilecore.local", protocol.getString("name"))
+        assertEquals(2, protocol.getInt("major"))
+        assertEquals(2, protocol.getInt("min_client_major"))
+        assertEquals(2, protocol.getInt("max_client_major"))
         val capabilities = healthJson.getJSONObject("capabilities")
         assertFalse(capabilities.getBoolean("video_input"))
         assertFalse(capabilities.getBoolean("audio_output"))
@@ -164,6 +173,31 @@ class LocalMultimodalApiSmokeTest {
         })
         assertEquals(200, text.code)
         assertEquals("text-ok", assistantText(text.body))
+
+        backend.prepareBlockedChat()
+        val firstResult = AtomicReference<HttpResult>()
+        val firstWorker = Thread {
+            firstResult.set(chat(JSONObject().apply {
+                put("model", "smoke-model")
+                put("messages", JSONArray().put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", "hold the runtime")
+                }))
+            }))
+        }.apply { start() }
+        assertTrue(backend.chatStarted.await(2, TimeUnit.SECONDS))
+        val busy = chat(JSONObject().apply {
+            put("model", "smoke-model")
+            put("messages", JSONArray().put(JSONObject().apply {
+                put("role", "user")
+                put("content", "must not run concurrently")
+            }))
+        })
+        assertEquals(400, busy.code)
+        assertEquals("runtime_busy", errorCode(busy.body))
+        backend.releaseBlockedChat()
+        firstWorker.join(2_000)
+        assertEquals(200, firstResult.get().code)
 
         val pngHeader = byteArrayOf(
             0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -231,10 +265,20 @@ class LocalMultimodalApiSmokeTest {
             .cacheDir.resolve("openai-media")
         assertTrue(mediaCache.listFiles().isNullOrEmpty())
 
-        val metrics = JSONObject(request("GET", "/metrics").body)
+        val cancel = request("POST", "/mobilecore/inference/cancel", "{}")
+        assertEquals(200, cancel.code)
+        assertTrue(JSONObject(cancel.body).getBoolean("cancel_requested"))
+        assertEquals(1, backend.cancelRequests)
+
+        val metricsResult = request("GET", "/metrics")
+        assertEquals(metricsResult.body, 200, metricsResult.code)
+        val metrics = JSONObject(metricsResult.body)
         assertTrue(metrics.getLong("uptime_seconds") >= 0L)
         assertTrue(metrics.getLong("requests_total") >= 6L)
+        assertTrue(metrics.getLong("requests_completed") >= 1L)
         assertTrue(metrics.getLong("requests_failed") >= 3L)
+        assertEquals(1L, metrics.getLong("inference_cancel_requests"))
+        assertTrue(metrics.getLong("inference_busy_rejections") >= 1L)
         assertTrue(metrics.getDouble("average_decode_tokens_per_second") >= 0.0)
     }
 
@@ -323,6 +367,10 @@ class LocalMultimodalApiSmokeTest {
 
     private class RecordingBackend : RuntimeBackend, MultimodalRuntimeBackend {
         val mediaTypes = mutableListOf<String>()
+        var cancelRequests = 0
+        var chatStarted = CountDownLatch(0)
+        private var chatRelease = CountDownLatch(0)
+        @Volatile private var blockNextTextChat = false
         var projectorLoadOk = true
         private var activeModel: String? = null
 
@@ -348,11 +396,32 @@ class LocalMultimodalApiSmokeTest {
 
         override fun isModelLoaded() = activeModel != null
 
-        override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
-            result(options.model, "text-ok")
+        override fun chat(messages: List<ChatMessage>, options: ChatOptions): ChatResult {
+            if (blockNextTextChat) {
+                chatStarted.countDown()
+                chatRelease.await(5, TimeUnit.SECONDS)
+                blockNextTextChat = false
+            }
+            return result(options.model, "text-ok")
+        }
+
+        fun prepareBlockedChat() {
+            chatStarted = CountDownLatch(1)
+            chatRelease = CountDownLatch(1)
+            blockNextTextChat = true
+        }
+
+        fun releaseBlockedChat() {
+            chatRelease.countDown()
+        }
 
         override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
             emptySequence()
+
+        override fun cancelInference(): Boolean {
+            cancelRequests += 1
+            return true
+        }
 
         override fun metrics() = RuntimeMetrics(activeModel = activeModel, backend = "instrumented-fake")
 

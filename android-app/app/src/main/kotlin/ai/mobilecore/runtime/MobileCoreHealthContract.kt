@@ -2,6 +2,32 @@ package ai.mobilecore.runtime
 
 import org.json.JSONObject
 
+data class MobileCoreClientProtocol(
+    val name: String,
+    val major: Int,
+    val minor: Int,
+    val minimumClientMajor: Int,
+    val maximumClientMajor: Int,
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("name", name)
+        put("major", major)
+        put("minor", minor)
+        put("min_client_major", minimumClientMajor)
+        put("max_client_major", maximumClientMajor)
+    }
+
+    companion object {
+        val V2 = MobileCoreClientProtocol(
+            name = "mobilecore.local",
+            major = 2,
+            minor = 0,
+            minimumClientMajor = 2,
+            maximumClientMajor = 2,
+        )
+    }
+}
+
 data class ModalityCapabilities(
     val textInput: Boolean,
     val imageInput: Boolean,
@@ -81,11 +107,13 @@ data class MobileCoreHealthSnapshot(
     val mainArtifact: ArtifactHealth,
     val projectorArtifact: ArtifactHealth,
     val preflight: ResourcePreflightHealth,
+    val protocol: MobileCoreClientProtocol = MobileCoreClientProtocol.V2,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("status", "ok")
         put("service", "mobilecore")
         put("version", version)
+        put("protocol", protocol.toJson())
         put("model_loaded", modelLoaded)
         put("active_model", activeModel ?: JSONObject.NULL)
         put("quantization", quantization)
