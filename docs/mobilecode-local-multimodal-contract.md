@@ -62,7 +62,7 @@ MobileCode may display MobileCore’s artifact/preflight state, but MobileCore o
 Authenticated lifecycle routes are:
 
 - `POST /mobilecore/model/load` with `{"model_id":"<id>"}` for an already installed GGUF model
-- `POST /mobilecore/model/load` may include a public `projector_id` when automatic pairing is ambiguous; MobileCore rejects a projector from another directory or model family
+- `POST /mobilecore/model/load` may include a public `projector_id` when automatic pairing is ambiguous; MobileCore returns `projector_incompatible` for a projector from another directory or model family, and `projector_load_failed` when the selected projector passes discovery but libmtmd rejects it
 - `POST /mobilecore/model/unload` to release the active text model without deleting artifacts
 
 - `GET /mobilecore/omni/status`

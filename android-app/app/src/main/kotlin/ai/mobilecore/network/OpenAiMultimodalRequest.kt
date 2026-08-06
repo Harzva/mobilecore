@@ -26,6 +26,8 @@ internal enum class ApiFailureCode(val wireValue: String) {
     INSUFFICIENT_MEMORY("insufficient_memory"),
     INSUFFICIENT_STORAGE("insufficient_storage"),
     MODEL_LOAD_FAILED("model_load_failed"),
+    PROJECTOR_INCOMPATIBLE("projector_incompatible"),
+    PROJECTOR_LOAD_FAILED("projector_load_failed"),
     MEDIA_TOO_LARGE("media_too_large"),
     CANCELLED("cancelled"),
     REMOTE_MEDIA_NOT_ALLOWED("remote_media_not_allowed"),
@@ -556,6 +558,8 @@ private fun publicRuntimeMessage(code: ApiFailureCode): String = when (code) {
     ApiFailureCode.INSUFFICIENT_STORAGE -> "insufficient storage for the requested model"
     ApiFailureCode.CANCELLED -> "request was cancelled"
     ApiFailureCode.UNSUPPORTED_MODALITY -> "requested modality is not supported"
+    ApiFailureCode.PROJECTOR_INCOMPATIBLE -> "projector is incompatible with the selected model"
+    ApiFailureCode.PROJECTOR_LOAD_FAILED -> "projector failed to load"
     ApiFailureCode.MEDIA_TOO_LARGE -> "media exceeds the configured limit"
     else -> "multimodal model inference failed"
 }

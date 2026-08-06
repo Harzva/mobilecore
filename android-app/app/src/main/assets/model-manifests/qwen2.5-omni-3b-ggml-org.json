@@ -13,7 +13,7 @@
   },
   "runtime": {
     "name": "llama.cpp/libmtmd",
-    "revision": "063d9c156e816ae3cf62db01f429a07a099afe97"
+    "revision": "e1af89a6815737a5db132eee23a94a8ee58553e0"
   },
   "quantization": "main=Q4_K_M;mmproj=Q8_0",
   "total_artifact_bytes": 3642962976,

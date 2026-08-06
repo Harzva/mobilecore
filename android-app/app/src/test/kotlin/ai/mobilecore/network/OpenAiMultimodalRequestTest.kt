@@ -244,6 +244,8 @@ class OpenAiMultimodalRequestTest {
             "insufficient_memory",
             "insufficient_storage",
             "model_load_failed",
+            "projector_incompatible",
+            "projector_load_failed",
             "media_too_large",
             "cancelled",
         )

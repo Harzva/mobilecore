@@ -318,6 +318,8 @@ OpenAI-compatible API 之外的能力放到：
 model_not_found
 model_not_loaded
 model_load_failed
+projector_incompatible
+projector_load_failed
 out_of_memory
 context_too_large
 invalid_request

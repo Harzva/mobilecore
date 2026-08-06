@@ -38,7 +38,7 @@ class LocalApiServer(
     port: Int = 8080
 ) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
-    private val apiVersion = "0.1.4-rc2"
+    private val apiVersion = "0.1.4-rc3"
     private val startedAtMs = System.currentTimeMillis()
     private val requestsTotal = AtomicLong(0)
     private val requestsFailed = AtomicLong(0)
@@ -445,7 +445,10 @@ class LocalApiServer(
                     !modelManager.isProjectorCompatible(runtimeModel.id, requestedProjectorId))
             ) {
                 backend.unloadModel()
-                return apiError(ApiFailureCode.INVALID_REQUEST, "projector is not compatible with the selected model")
+                return apiError(
+                    ApiFailureCode.PROJECTOR_INCOMPATIBLE,
+                    "projector is incompatible with the selected model",
+                )
             }
             if (projector != null) {
                 val multimodal = backend as? MultimodalRuntimeBackend
@@ -460,7 +463,7 @@ class LocalApiServer(
                         "model_load_failed stage=projector model_id=${runtimeModel?.id ?: "legacy"} projector_id=${projector.id}",
                     )
                     backend.unloadModel()
-                    return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
+                    return apiError(ApiFailureCode.PROJECTOR_LOAD_FAILED, "projector failed to load")
                 }
             }
             val multimodalStatus = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()

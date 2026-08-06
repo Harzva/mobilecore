@@ -2,6 +2,8 @@ package ai.mobilecore.network
 
 import ai.mobilecore.omni.artifact.OmniInstallEnvironment
 import ai.mobilecore.omni.artifact.OmniInstallEnvironmentProbe
+import ai.mobilecore.omni.artifact.OmniArtifactFailureCode
+import ai.mobilecore.omni.artifact.OmniArtifactRole
 import ai.mobilecore.runtime.BackendInfo
 import ai.mobilecore.runtime.ChatMessage
 import ai.mobilecore.runtime.ChatOptions
@@ -80,6 +82,18 @@ class OmniLocalControllerTest {
 
         assertFalse(result.accepted)
         assertEquals("artifact_missing", result.body.getJSONObject("error").getString("code"))
+    }
+
+    @Test
+    fun projectorRuntimeFailuresRemainTyped() {
+        val missing = projectorRuntimeFailure("artifact_missing")
+        val incompatible = projectorRuntimeFailure("unsupported_modality")
+        val rejected = projectorRuntimeFailure("model_load_failed")
+
+        assertEquals(OmniArtifactFailureCode.ARTIFACT_MISSING, missing.code)
+        assertEquals(OmniArtifactFailureCode.PROJECTOR_INCOMPATIBLE, incompatible.code)
+        assertEquals(OmniArtifactFailureCode.PROJECTOR_LOAD_FAILED, rejected.code)
+        assertEquals(OmniArtifactRole.MMPROJ, rejected.artifactRole)
     }
 
     @Test

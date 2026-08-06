@@ -478,8 +478,9 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
     }
 
     const std::string formatted = format_mtmd_user_prompt(user_prompt);
-    mtmd_input_text input_text;
+    mtmd_input_text input_text{};
     input_text.text = formatted.c_str();
+    input_text.text_len = formatted.size();
     input_text.add_special = true;
     input_text.parse_special = true;
     mtmd_input_chunks* chunks = mtmd_input_chunks_init();

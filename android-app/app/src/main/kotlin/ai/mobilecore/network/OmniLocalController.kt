@@ -2,6 +2,7 @@ package ai.mobilecore.network
 
 import ai.mobilecore.omni.artifact.AndroidOmniInstallEnvironmentProbe
 import ai.mobilecore.omni.artifact.OmniArtifactFailure
+import ai.mobilecore.omni.artifact.OmniArtifactFailureCode
 import ai.mobilecore.omni.artifact.OmniArtifactInstaller
 import ai.mobilecore.omni.artifact.OmniArtifactManifest
 import ai.mobilecore.omni.artifact.OmniArtifactRole
@@ -245,9 +246,17 @@ internal class OmniLocalController(
             threads = request.optInt("threads", 4).coerceIn(1, 16),
             gpuLayers = 0,
         )
+        var runtimeFailure: OmniArtifactFailure? = null
         val result = installer.loadVerifiedPair { mainPath, mmprojPath ->
             val mainLoad = backend.loadModel(mainPath, options)
-            if (!mainLoad.ok) return@loadVerifiedPair false
+            if (!mainLoad.ok) {
+                runtimeFailure = OmniArtifactFailure(
+                    OmniArtifactFailureCode.MODEL_LOAD_FAILED,
+                    "The runtime rejected the verified main model",
+                    OmniArtifactRole.MAIN,
+                )
+                return@loadVerifiedPair false
+            }
             val projectorLoad = runCatching {
                 JSONObject(
                     RuntimeBridge.loadMtmdProjector(
@@ -257,7 +266,10 @@ internal class OmniLocalController(
                 )
             }.getOrNull()
             val ok = projectorLoad?.optBoolean("ok", false) == true
-            if (!ok) backend.unloadModel()
+            if (!ok) {
+                runtimeFailure = projectorRuntimeFailure(projectorLoad?.optString("code", ""))
+                backend.unloadModel()
+            }
             ok
         }
         return when (result) {
@@ -269,7 +281,10 @@ internal class OmniLocalController(
                 },
             )
 
-            is OmniLoadPairResult.Failed -> OmniControllerResult(false, errorJson(result.failure))
+            is OmniLoadPairResult.Failed -> OmniControllerResult(
+                false,
+                errorJson(runtimeFailure ?: result.failure),
+            )
         }
     }
 
@@ -329,4 +344,18 @@ internal class OmniLocalController(
             put("artifact_role", failure.artifactRole?.name?.lowercase() ?: JSONObject.NULL)
         })
     }
+}
+
+internal fun projectorRuntimeFailure(rawCode: String?): OmniArtifactFailure {
+    val code = when (rawCode) {
+        OmniArtifactFailureCode.ARTIFACT_MISSING.wireValue -> OmniArtifactFailureCode.ARTIFACT_MISSING
+        OmniArtifactFailureCode.UNSUPPORTED_MODALITY.wireValue -> OmniArtifactFailureCode.PROJECTOR_INCOMPATIBLE
+        else -> OmniArtifactFailureCode.PROJECTOR_LOAD_FAILED
+    }
+    val message = when (code) {
+        OmniArtifactFailureCode.ARTIFACT_MISSING -> "The verified projector is no longer available"
+        OmniArtifactFailureCode.PROJECTOR_INCOMPATIBLE -> "The projector is incompatible with the selected model"
+        else -> "The runtime rejected the verified projector"
+    }
+    return OmniArtifactFailure(code, message, OmniArtifactRole.MMPROJ)
 }

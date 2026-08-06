@@ -7,6 +7,8 @@ enum class OmniArtifactFailureCode(val wireValue: String) {
     INSUFFICIENT_MEMORY("insufficient_memory"),
     INSUFFICIENT_STORAGE("insufficient_storage"),
     MODEL_LOAD_FAILED("model_load_failed"),
+    PROJECTOR_INCOMPATIBLE("projector_incompatible"),
+    PROJECTOR_LOAD_FAILED("projector_load_failed"),
     MEDIA_TOO_LARGE("media_too_large"),
     CANCELLED("cancelled"),
     EXPLICIT_CONSENT_REQUIRED("explicit_consent_required"),

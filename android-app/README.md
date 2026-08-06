@@ -120,6 +120,8 @@ curl -H "Authorization: Bearer local" http://127.0.0.1:8080/mobilecore/models/di
 
 MobileCore 的 llama.cpp/libmtmd 路线只提供 `text/image/audio -> text`，不支持 video input，也不支持 audio/speech output。所选模型是 `ggml-org` 发布的 GGUF conversion，不是“Qwen 官方 GGUF”。完整安装需要主模型 Q4_K_M 与 Q8 mmproj 两个文件，总计 3,642,962,976 bytes，不能宣传成“约 2 GB 完整多模态”。
 
+Android native 构建固定使用 llama.cpp `e1af89a6815737a5db132eee23a94a8ee58553e0`，即修复 Qwen2.5-Omni mmproj conversion regression 的上游合并提交；构建与产品清单均不跟随浮动分支。
+
 `GET /health` 会按输入/输出模态分别报告当前已加载 runtime 的真实能力，同时返回 active model、quantization、llama.cpp revision、两个 artifact 的 SHA-256/校验状态以及内存和存储预检。安装生命周期保持 app-private，并要求明确同意、source-declared license ID、默认 Wi-Fi-only、临时文件、校验、取消和卸载：
 
 ```bash
