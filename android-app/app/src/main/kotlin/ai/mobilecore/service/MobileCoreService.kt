@@ -32,7 +32,7 @@ class MobileCoreService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel()
-        startForeground(notificationId, buildNotification("MobileCore local API 启动中"))
+        promoteToForeground("MobileCore local API 启动中")
 
         backend = MockRuntimeBackend(applicationContext)
         modelManager = ModelManager(backend, applicationContext)
@@ -140,8 +140,15 @@ class MobileCoreService : Service() {
     }
 
     private fun updateNotification(content: String) {
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(notificationId, buildNotification(content))
+        // Keep every notification replacement attached to the foreground service.
+        // A plain NotificationManager.notify() update can leave the service record
+        // non-foreground on newer Android releases, allowing the local API process
+        // to be frozen as soon as another app moves to the foreground.
+        promoteToForeground(content)
+    }
+
+    private fun promoteToForeground(content: String) {
+        startForeground(notificationId, buildNotification(content))
     }
 
     private fun startWakeLock() {
