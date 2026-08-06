@@ -103,7 +103,6 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
-import androidx.core.content.ContextCompat.startForegroundService
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -4915,11 +4914,11 @@ class MainActivity : Activity() {
 
     private fun startServiceInForeground() {
         val intent = Intent(this, MobileCoreService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(this, intent)
-        } else {
-            startService(intent)
-        }
+        // Every entry point here is user-initiated from the visible activity.
+        // startService avoids creating another foreground-start timeout when
+        // the already-promoted local API service receives a refresh request.
+        // MobileCoreService promotes itself in onCreate/onStartCommand.
+        startService(intent)
         updateStatus("本机服务已启动")
         refreshRecommendationSnapshot()
     }
@@ -5184,11 +5183,7 @@ class MainActivity : Activity() {
         val intent = Intent(this, MobileCoreService::class.java).apply {
             putExtra("modelPath", model.absolutePath)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(this, intent)
-        } else {
-            startService(intent)
-        }
+        startService(intent)
         updateStatus("正在加载模型：${model.name}")
         if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) renderCurrentTab()
     }
