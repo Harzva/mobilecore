@@ -44,4 +44,15 @@ class BenchmarkScreenPresenterTest {
         assertEquals(49, model.progressPercent)
         assertEquals("约 51 秒", model.remainingLabel)
     }
+
+    @Test
+    fun `missing model message uses the compact display name`() {
+        val model = BenchmarkScreenPresenter.present(
+            state = BenchmarkUiState.NeedsModel("qwen2.5-0.5b-instruct-q4_k_m.gguf"),
+            live = BenchmarkLiveSnapshot(),
+            modelDisplayName = { "Qwen2.5 0.5B" },
+        )
+
+        assertEquals("需要 Qwen2.5 0.5B 标准模型，下载完成后即可开始。", model.message)
+    }
 }
