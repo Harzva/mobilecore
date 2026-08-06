@@ -42,7 +42,8 @@ class HomeScreenPresenterTest {
 
         assertEquals("继续下载", paused.actionLabel)
         assertEquals("已保留下载进度", paused.remainingLabel)
-        assertEquals("开始标准测试", complete.actionLabel)
+        assertEquals("加载模型", complete.actionLabel)
+        assertEquals("文件已保存到本机，尚未加载", complete.remainingLabel)
         assertEquals(100, complete.progressPercent)
     }
 }

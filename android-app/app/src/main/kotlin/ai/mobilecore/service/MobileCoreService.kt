@@ -4,6 +4,7 @@ import ai.mobilecore.network.LocalApiServer
 import ai.mobilecore.runtime.MockRuntimeBackend
 import ai.mobilecore.runtime.ModelManager
 import ai.mobilecore.runtime.LoadOptions
+import ai.mobilecore.runtime.ModelLoadStatusContract
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -65,6 +66,10 @@ class MobileCoreService : Service() {
         }
 
         if (!modelPath.isNullOrBlank()) {
+            broadcastModelLoadState(
+                state = ModelLoadStatusContract.STATE_LOADING,
+                modelPath = modelPath,
+            )
             val result = backend.loadModel(modelPath, LoadOptions())
             updateNotification(
                 if (result.ok) {
@@ -73,8 +78,30 @@ class MobileCoreService : Service() {
                     "Model load failed: ${result.modelId}"
                 }
             )
+            broadcastModelLoadState(
+                state = if (result.ok) ModelLoadStatusContract.STATE_LOADED else ModelLoadStatusContract.STATE_FAILED,
+                modelPath = modelPath,
+                modelId = result.modelId,
+                message = if (result.ok) "模型已加载" else "运行时未能加载模型",
+            )
         }
         return START_STICKY
+    }
+
+    private fun broadcastModelLoadState(
+        state: String,
+        modelPath: String,
+        modelId: String? = null,
+        message: String? = null,
+    ) {
+        sendBroadcast(
+            Intent(ModelLoadStatusContract.ACTION)
+                .setPackage(packageName)
+                .putExtra(ModelLoadStatusContract.EXTRA_STATE, state)
+                .putExtra(ModelLoadStatusContract.EXTRA_MODEL_PATH, modelPath)
+                .putExtra(ModelLoadStatusContract.EXTRA_MODEL_ID, modelId)
+                .putExtra(ModelLoadStatusContract.EXTRA_MESSAGE, message)
+        )
     }
 
     override fun onDestroy() {
