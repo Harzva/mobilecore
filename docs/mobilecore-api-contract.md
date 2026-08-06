@@ -159,6 +159,7 @@ GET /health
   "status": "ok",
   "service": "mobilecore",
   "version": "0.1.4-rc6",
+  "background_restricted": false,
   "protocol": {
     "name": "mobilecore.local",
     "major": 2,
@@ -190,6 +191,8 @@ GET /health
   }
 }
 ```
+
+`background_restricted` 来自 Android 的公开后台限制状态。MobileCode 读到 `true` 时必须暂停本地路由并提示用户在系统电池设置中恢复后台运行；正式 App 不得通过 ADB、secure settings 或隐藏接口静默修改该状态。
 
 能力布尔值表示当前加载 runtime 的能力，不是模型卡能力。GGUF 路线不得把 video 或 speech output 标为可用。
 

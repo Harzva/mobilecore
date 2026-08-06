@@ -34,6 +34,14 @@ class MobileCoreHealthContractTest {
     }
 
     @Test
+    fun reportsBackgroundRestrictionWithoutChangingModelCapabilityTruth() {
+        val snapshot = fixture().copy(backgroundRestricted = true).toJson()
+
+        assertTrue(snapshot.getBoolean("background_restricted"))
+        assertTrue(snapshot.getJSONObject("capabilities").getBoolean("text_input"))
+    }
+
+    @Test
     fun exposesExpectedDigestsWithoutClaimingUnverifiedFilesAreInstalled() {
         val json = fixture().toJson().getJSONObject("artifacts")
 

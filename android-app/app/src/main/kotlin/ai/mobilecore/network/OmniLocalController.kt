@@ -23,7 +23,9 @@ import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.runtime.RuntimeModel
 import ai.mobilecore.runtime.RuntimeProjector
+import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import org.json.JSONObject
 import java.io.File
 
@@ -50,6 +52,7 @@ internal class OmniLocalController(
     private val activeModelQuantization: (String?) -> String = { "unknown" },
     private val activeModelLookup: (String?) -> RuntimeModel? = { null },
     private val activeProjectorLookup: (String?) -> RuntimeProjector? = { null },
+    private val backgroundRestrictedProbe: () -> Boolean = { false },
 ) {
     constructor(
         context: Context,
@@ -72,6 +75,11 @@ internal class OmniLocalController(
         },
         activeProjectorLookup = { projectorId ->
             projectorId?.let(modelManager::projectorById)
+        },
+        backgroundRestrictedProbe = {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+                (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                    .isBackgroundRestricted
         },
     )
 
@@ -171,6 +179,7 @@ internal class OmniLocalController(
                     requiredStorageBytes = manifest.requiredStorageBytes,
                 )
             },
+            backgroundRestricted = backgroundRestrictedProbe(),
         ).toJson()
         base.put("install", snapshotJson(snapshot, environment.wifiConnected))
         base.put(

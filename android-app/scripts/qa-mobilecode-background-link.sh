@@ -57,6 +57,12 @@ if [[ "$actual_core_version" != "$EXPECTED_CORE_VERSION" ]]; then
   exit 3
 fi
 
+core_process_state_before="$("${ADB[@]}" shell dumpsys activity processes "$CORE_PACKAGE")"
+if grep -q "backgroundRestricted=true" <<< "$core_process_state_before"; then
+  echo "MobileCore is background-restricted; use the system Battery settings to allow background operation before acceptance." >&2
+  exit 3
+fi
+
 LOGCAT_START="$("${ADB[@]}" shell "date '+%m-%d %H:%M:%S.000'" | tr -d '\r')"
 "${ADB[@]}" shell am start -W -n "$CLIENT_COMPONENT" > "$OUTPUT_DIR/mobilecode-start.txt"
 
@@ -93,6 +99,11 @@ if grep -Eq "${CORE_PACKAGE}.*(FROZEN|frozen=true)|freez(e|ing).*${CORE_PACKAGE}
   frozen=true
 fi
 
+background_restricted=false
+if grep -q "backgroundRestricted=true" <<< "$process_state"; then
+  background_restricted=true
+fi
+
 safety_failure=false
 if [[ -n "$logcat_safety" ]]; then
   safety_failure=true
@@ -104,7 +115,7 @@ if "${ADB[@]}" shell pidof "$CORE_PACKAGE" >/dev/null; then
 fi
 
 client_foreground=false
-if grep -Eq "mResumedActivity:.*${CLIENT_PACKAGE}" <<< "$activity_state"; then
+if grep -Eq "(mResumedActivity|topResumedActivity|ResumedActivity)[=:].*${CLIENT_PACKAGE}" <<< "$activity_state"; then
   client_foreground=true
 fi
 
@@ -118,6 +129,7 @@ printf '%s\n' \
   "service_foreground=$foreground" \
   "process_alive=$process_alive" \
   "client_foreground=$client_foreground" \
+  "core_background_restricted=$background_restricted" \
   "process_frozen=$frozen" \
   "safety_failure=$safety_failure" \
   "artifact_id=$STAMP" \
@@ -126,6 +138,6 @@ printf '%s\n' \
 
 cat "$OUTPUT_DIR/summary.txt"
 
-if [[ "$failed_polls" -ne 0 || "$foreground" != true || "$process_alive" != true || "$client_foreground" != true || "$frozen" == true || "$safety_failure" == true ]]; then
+if [[ "$failed_polls" -ne 0 || "$foreground" != true || "$process_alive" != true || "$client_foreground" != true || "$background_restricted" == true || "$frozen" == true || "$safety_failure" == true ]]; then
   exit 4
 fi

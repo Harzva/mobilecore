@@ -169,11 +169,13 @@ The Android local API allows the GitHub Pages origin `https://harzva.github.io` 
 
 MobileCore reports the active model, runtime, revision, backend, quantization, capability snapshot, active-model resource preflight, artifact state, recommendations, and decode metrics. MobileCode uses this snapshot for routing and presents load/unload/switch controls without learning local file paths.
 
-MobileCore `0.1.4-rc4` publishes the strict `mobilecore.local` v2 compatibility range in `/health`; MobileCode `0.1.76` fails closed before model control or inference when that handshake is missing, malformed, or incompatible. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
+MobileCore `0.1.4-rc6` publishes the strict `mobilecore.local` v2 compatibility range and Android `background_restricted` state in `/health`; MobileCode fails closed before local routing when the handshake is incompatible or Android will not allow MobileCore to remain active. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
 
 The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
 
 On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests from the MobileCode instrumentation process to MobileCore: 15 buffered completions and 15 SSE completions. Model unload/reload, a real Qwen2.5-to-Qwen3 switch, background continuity, low-memory notification, and process restart recovery also passed. A separate real Qwen3.5 0.8B GGUF/mmproj run completed an image request through the unified API. The tested image was classified incorrectly, so this proves the local multimodal chain rather than model accuracy. No physical Android device was available; physical thermal/device claims remain open.
+
+On 2026-08-07, the Android 16 dual-app background lane additionally kept MobileCode resumed for 40 polls (about two minutes) while a real Qwen2.5 0.5B model remained loaded in MobileCore. All 40 authenticated health checks passed; MobileCore stayed a typed `dataSync` foreground service and neither process freezing nor FGS/ANR/OOM safety failures were observed. A deliberately background-restricted emulator state was rejected during preflight and is not counted as a runtime pass.
 
 ## Benchmarks
 

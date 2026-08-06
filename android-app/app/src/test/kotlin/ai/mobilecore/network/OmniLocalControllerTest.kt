@@ -107,6 +107,14 @@ class OmniLocalControllerTest {
     }
 
     @Test
+    fun healthReportsBackgroundRestrictionForClientRouting() {
+        val health = controller(backgroundRestricted = true).health()
+
+        assertTrue(health.getBoolean("background_restricted"))
+        assertFalse(health.getBoolean("model_loaded"))
+    }
+
+    @Test
     fun ordinaryTextModelUsesActiveRuntimePreflightInsteadOfOmniRequirements() {
         val model = RuntimeModel(
             id = "small-q4_k_m",
@@ -194,7 +202,7 @@ class OmniLocalControllerTest {
         )
     }
 
-    private fun controller(): OmniLocalController {
+    private fun controller(backgroundRestricted: Boolean = false): OmniLocalController {
         val backend = TestRuntimeBackend()
         return OmniLocalController(
             backend = backend,
@@ -213,6 +221,7 @@ class OmniLocalControllerTest {
                     .put("visionInput", false)
                     .put("audioInput", false)
             },
+            backgroundRestrictedProbe = { backgroundRestricted },
         )
     }
 }

@@ -107,6 +107,7 @@ data class MobileCoreHealthSnapshot(
     val mainArtifact: ArtifactHealth,
     val projectorArtifact: ArtifactHealth,
     val preflight: ResourcePreflightHealth,
+    val backgroundRestricted: Boolean = false,
     val protocol: MobileCoreClientProtocol = MobileCoreClientProtocol.V2,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
@@ -119,6 +120,7 @@ data class MobileCoreHealthSnapshot(
         put("quantization", quantization)
         put("runtime", runtime)
         put("backend", backend)
+        put("background_restricted", backgroundRestricted)
         put("llama_cpp_revision", llamaRevision)
         put("capabilities", capabilities.toJson())
         put("artifacts", JSONObject().apply {
