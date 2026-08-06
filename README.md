@@ -15,7 +15,10 @@
   <img alt="llama.cpp" src="https://img.shields.io/badge/llama.cpp-JNI%20backend-43D1E8?style=flat-square" />
   <img alt="GGUF" src="https://img.shields.io/badge/GGUF-models-6B8CFF?style=flat-square" />
   <img alt="OpenAI compatible" src="https://img.shields.io/badge/API-OpenAI%20compatible-111827?style=flat-square" />
+  <img alt="Release" src="https://img.shields.io/badge/release-v0.1.4--rc4-2555FF?style=flat-square" />
 </p>
+
+Latest Android prerelease: [TuiMa 0.1.4 RC4](https://github.com/Harzva/mobilecore/releases/tag/v0.1.4-rc4). The official upload-signed APK was built by [GitHub Actions run 31127904733](https://github.com/Harzva/mobilecore/actions/runs/31127904733) from commit `07abdf0d` and has SHA-256 `6ea2b9c80e55d7c98e0ac2f85bf003141472d73328cb10c34acee33619018df5`. The separately labeled debug-signed APK is QA-only.
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
@@ -165,6 +168,8 @@ The Android local API allows the GitHub Pages origin `https://harzva.github.io` 
 ## MobileCode Integration
 
 MobileCore reports the active model, runtime, revision, backend, quantization, capability snapshot, active-model resource preflight, artifact state, recommendations, and decode metrics. MobileCode uses this snapshot for routing and presents load/unload/switch controls without learning local file paths.
+
+MobileCore `0.1.4-rc4` publishes the strict `mobilecore.local` v2 compatibility range in `/health`; MobileCode `0.1.76` fails closed before model control or inference when that handshake is missing, malformed, or incompatible. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
 
 The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
 
