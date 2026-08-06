@@ -36,7 +36,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | --- | --- |
 | Android app | Kotlin app with `MainActivity`, foreground `MobileCoreService`, notification permission handling, and model actions |
 | iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama.cpp bridge, and foreground localhost API |
-| Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, and model management routes |
+| Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, recommendations, and model-ID load/unload routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
@@ -144,7 +144,31 @@ curl -H "Authorization: Bearer local" \
   http://127.0.0.1:8080/metrics
 ```
 
+Load or unload an installed model without exposing its file path:
+
+```bash
+curl -X POST http://127.0.0.1:8080/mobilecore/model/load \
+  -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{"model_id":"qwen2.5-0.5b-instruct-q4_k_m","context_length":2048}'
+
+curl -X POST http://127.0.0.1:8080/mobilecore/model/unload \
+  -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+`/v1/models` and `/v1/recommendations` return public model identifiers and never return absolute model paths. The Android UI and MobileCode use the same `model_id` control contract. The legacy path input remains only for bounded host QA compatibility.
+
 The Android local API allows the GitHub Pages origin `https://harzva.github.io` plus localhost dev origins, including Private Network Access preflight headers. TuiMa Push verifies the `mobilecore.benchmark_signature` returned by `/v1/chat/completions` before sending a result to the shared Supabase leaderboard.
+
+## MobileCode Integration
+
+MobileCore reports the active model, runtime, revision, backend, quantization, capability snapshot, active-model resource preflight, artifact state, recommendations, and decode metrics. MobileCode uses this snapshot for routing and presents load/unload/switch controls without learning local file paths.
+
+The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
+
+On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests from the MobileCode instrumentation process to MobileCore: 15 buffered completions and 15 SSE completions. Model unload/reload, background continuity, low-memory notification, and process restart recovery also passed. Only one model and no physical Android device were available, so cross-model and physical thermal/device claims remain open.
 
 ## Benchmarks
 

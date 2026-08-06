@@ -11,6 +11,7 @@ import ai.mobilecore.runtime.LoadOptions
 import ai.mobilecore.runtime.LoadResult
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeMetrics
+import ai.mobilecore.runtime.RuntimeModel
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -88,6 +89,45 @@ class OmniLocalControllerTest {
         assertFalse(health.getBoolean("model_loaded"))
     }
 
+    @Test
+    fun ordinaryTextModelUsesActiveRuntimePreflightInsteadOfOmniRequirements() {
+        val model = RuntimeModel(
+            id = "small-q4_k_m",
+            path = root.resolve("small-q4_k_m.gguf").absolutePath,
+            format = "gguf",
+            backend = "llama.cpp",
+            quantization = "Q4_K_M",
+            contextLength = 2048,
+            sizeBytes = 400_000_000L,
+            loaded = true,
+        )
+        val health = OmniLocalController(
+            backend = ActiveTestRuntimeBackend(model.id),
+            version = "test",
+            installDirectory = root,
+            environmentProbe = OmniInstallEnvironmentProbe {
+                OmniInstallEnvironment(
+                    availableMemoryBytes = 1_000_000_000L,
+                    availableStorageBytes = 1_000_000_000L,
+                    wifiConnected = false,
+                )
+            },
+            runtimeInfo = { JSONObject().put("modelLoaded", true) },
+            activeModelQuantization = { model.quantization },
+            activeModelLookup = { model },
+        ).health()
+
+        assertEquals("llama.cpp", health.getString("runtime"))
+        assertTrue(health.getJSONObject("preflight").getBoolean("ok"))
+        assertEquals(
+            400_000_000L + 128L * 1024L * 1024L,
+            health.getJSONObject("preflight").getJSONObject("memory").getLong("required_bytes"),
+        )
+        assertFalse(health.getJSONObject("artifacts").getJSONObject("main").getBoolean("verified"))
+        assertTrue(health.getJSONObject("artifacts").getJSONObject("main").isNull("digest"))
+        assertFalse(health.getJSONObject("artifacts").getJSONObject("mmproj").getBoolean("present"))
+    }
+
     private fun controller(): OmniLocalController {
         val backend = TestRuntimeBackend()
         return OmniLocalController(
@@ -123,4 +163,18 @@ private class TestRuntimeBackend : RuntimeBackend {
         emptySequence()
 
     override fun metrics() = RuntimeMetrics(activeModel = null, backend = "test")
+}
+
+private class ActiveTestRuntimeBackend(private val modelId: String) : RuntimeBackend {
+    override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
+    override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(true, modelId, 0, 0)
+    override fun unloadModel() = true
+    override fun isModelLoaded() = true
+    override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
+        ChatResult(model = options.model, message = "not used")
+
+    override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
+        emptySequence()
+
+    override fun metrics() = RuntimeMetrics(activeModel = modelId, backend = "test")
 }

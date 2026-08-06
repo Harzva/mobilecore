@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: MobileCore Local OpenAI-Compatible API
-  version: 0.1.3-rc2
+  version: 0.1.4-rc1
   description: |
     Loopback-only API for MobileCode and other local clients. The llama.cpp/libmtmd
     Qwen2.5-Omni route supports text, image, and audio input with text output only.
@@ -66,6 +66,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /metrics:
+    get:
+      summary: Read aggregate request and latest decode metrics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Redacted local runtime metrics; prompts and media are never included
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active_model: {type: string, nullable: true}
+                  backend: {type: string}
+                  uptime_seconds: {type: integer, format: int64}
+                  requests_total: {type: integer, format: int64}
+                  requests_failed: {type: integer, format: int64}
+                  last_decode_tokens_per_second: {type: number}
+                  average_decode_tokens_per_second: {type: number}
+                  last_first_token_ms: {type: integer}
+                  last_total_ms: {type: integer}
+                  memory_peak_mb: {type: integer}
+  /v1/recommendations:
+    get:
+      summary: Recommend installed models for the current device
+      description: Responses contain public model IDs and never contain absolute model paths.
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: preference
+          schema:
+            type: string
+            enum: [speed, stability, small]
+      responses:
+        '200':
+          description: Device profile, scoring snapshot, and ranked installed models
+  /mobilecore/model/load:
+    post:
+      summary: Load an installed GGUF by public model ID
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_id]
+              properties:
+                model_id: {type: string}
+                context_length: {type: integer, minimum: 128, maximum: 32768, default: 4096}
+                threads: {type: integer, minimum: 1, maximum: 16, default: 4}
+      responses:
+        '200':
+          description: Installed model loaded
+        '400':
+          description: Model ID is unavailable or the model failed to load
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /mobilecore/model/unload:
+    post:
+      summary: Unload the active model without deleting its artifact
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Runtime resources released
   /mobilecore/omni/status:
     get:
       summary: Read the pinned GGUF plus mmproj install state
@@ -340,8 +411,8 @@ components:
       required: [file_name, digest_algorithm, digest, expected_bytes, present, verified]
       properties:
         file_name: {type: string}
-        digest_algorithm: {type: string, enum: [sha256]}
-        digest: {type: string}
+        digest_algorithm: {type: string, enum: [sha256], nullable: true}
+        digest: {type: string, nullable: true}
         expected_bytes: {type: integer, format: int64}
         present: {type: boolean}
         verified: {type: boolean}

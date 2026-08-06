@@ -29,8 +29,8 @@ data class ArtifactHealth(
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("file_name", fileName)
-        put("digest_algorithm", "sha256")
-        put("digest", expectedSha256)
+        put("digest_algorithm", if (expectedSha256.isBlank()) JSONObject.NULL else "sha256")
+        put("digest", if (expectedSha256.isBlank()) JSONObject.NULL else expectedSha256)
         put("expected_bytes", expectedBytes)
         put("present", present)
         put("verified", verified)

@@ -68,6 +68,15 @@ class ModelManager(
         return scanModels().firstOrNull { it.sizeBytes > 0 }
     }
 
+    /** Resolve a public model id without exposing or accepting a filesystem path. */
+    fun modelById(modelId: String): RuntimeModel? {
+        val normalized = modelId.trim()
+        if (normalized.isEmpty()) return null
+        return scanModels().firstOrNull { model ->
+            model.sizeBytes > 0 && model.id.equals(normalized, ignoreCase = true)
+        }
+    }
+
     fun modelDirectories(): List<File> {
         return listOfNotNull(internalModelDir, externalModelDir)
     }

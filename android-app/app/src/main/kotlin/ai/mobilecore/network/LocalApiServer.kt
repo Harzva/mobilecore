@@ -26,6 +26,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.io.File
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.DoubleAdder
 
 class LocalApiServer(
     private val backend: RuntimeBackend,
@@ -35,7 +37,12 @@ class LocalApiServer(
     port: Int = 8080
 ) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
-    private val apiVersion = "0.1.3-rc2"
+    private val apiVersion = "0.1.4-rc1"
+    private val startedAtMs = System.currentTimeMillis()
+    private val requestsTotal = AtomicLong(0)
+    private val requestsFailed = AtomicLong(0)
+    private val requestsCompleted = AtomicLong(0)
+    private val decodeTokensPerSecondTotal = DoubleAdder()
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
     private val benchmarkStore = ModelBenchmarkStore(context.applicationContext)
@@ -123,6 +130,10 @@ class LocalApiServer(
 
             isModelLoadRoute(session) && method == Method.POST -> {
                 if (!hasAuth(session)) unauthorized() else onLoadModel(session)
+            }
+
+            isModelUnloadRoute(session) && method == Method.POST -> {
+                if (!hasAuth(session)) unauthorized() else onUnloadModel()
             }
 
             isModelDirsRoute(session) && method == Method.GET -> {
@@ -222,6 +233,10 @@ class LocalApiServer(
         return session.uri == "/mobilecore/model/load"
     }
 
+    private fun isModelUnloadRoute(session: IHTTPSession): Boolean {
+        return session.uri == "/mobilecore/model/unload"
+    }
+
     private fun isModelDirsRoute(session: IHTTPSession): Boolean {
         return session.uri == "/mobilecore/models/dirs"
     }
@@ -250,8 +265,10 @@ class LocalApiServer(
     }
 
     private fun onChat(session: IHTTPSession): Response {
+        requestsTotal.incrementAndGet()
         val declaredLength = session.headers["content-length"]?.toLongOrNull()
         if (declaredLength != null && declaredLength > MAX_CHAT_REQUEST_BYTES) {
+            requestsFailed.incrementAndGet()
             return apiError(
                 ApiFailureCode.MEDIA_TOO_LARGE,
                 "request exceeds the configured size limit",
@@ -260,6 +277,7 @@ class LocalApiServer(
         return try {
             val body = parseBody(session)
             if (body.toByteArray(Charsets.UTF_8).size.toLong() > MAX_CHAT_REQUEST_BYTES) {
+                requestsFailed.incrementAndGet()
                 return apiError(
                     ApiFailureCode.MEDIA_TOO_LARGE,
                     "request exceeds the configured size limit",
@@ -278,6 +296,8 @@ class LocalApiServer(
             val result = parsedRequest.use { parsed ->
                 OpenAiChatDispatcher.dispatch(backend, parsed, options)
             }
+            requestsCompleted.incrementAndGet()
+            decodeTokensPerSecondTotal.add(result.decodeTokensPerSecond)
             benchmarkStore.record(model, result)
             if (!result.model.equals(model, ignoreCase = true)) {
                 benchmarkStore.record(result.model, result)
@@ -353,9 +373,11 @@ class LocalApiServer(
                 }.toString(2))
             }
         } catch (e: ApiRequestException) {
+            requestsFailed.incrementAndGet()
             Log.e(logTag, "chat_failed code=${e.failureCode.wireValue} type=${e.javaClass.simpleName}")
             apiError(e.failureCode, e.publicMessage)
         } catch (e: Exception) {
+            requestsFailed.incrementAndGet()
             Log.e(logTag, "chat_failed code=invalid_request type=${e.javaClass.simpleName}")
             apiError(ApiFailureCode.INVALID_REQUEST, "invalid request")
         }
@@ -365,11 +387,12 @@ class LocalApiServer(
         return try {
             val body = parseBody(session)
             val request = JSONObject(body)
+            val requestedModelId = request.optString("model_id", "").trim()
             val requestedPath = request.optString("path", "")
-            val model = if (requestedPath.isNotBlank()) {
-                requestedPath
-            } else {
-                modelManager.firstAvailableModel()?.path ?: ""
+            val model = when {
+                requestedModelId.isNotBlank() -> modelManager.modelById(requestedModelId)?.path ?: ""
+                requestedPath.isNotBlank() -> requestedPath
+                else -> modelManager.firstAvailableModel()?.path ?: ""
             }
 
             if (model.isBlank()) {
@@ -413,6 +436,28 @@ class LocalApiServer(
         } catch (e: Exception) {
             Log.e(logTag, "model_load_failed code=model_load_failed type=${e.javaClass.simpleName}")
             apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
+        }
+    }
+
+    private fun onUnloadModel(): Response {
+        return try {
+            val previousModel = backend.metrics().activeModel
+            val ok = backend.unloadModel()
+            if (!ok) {
+                apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to unload")
+            } else {
+                okResponse(
+                    JSONObject().apply {
+                        put("ok", true)
+                        put("previous_model", previousModel ?: JSONObject.NULL)
+                        put("model_loaded", backend.isModelLoaded())
+                        put("backend", backend.backendInfo().id)
+                    }.toString(2)
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(logTag, "model_unload_failed code=model_load_failed type=${e.javaClass.simpleName}")
+            apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to unload")
         }
     }
 
@@ -466,7 +511,6 @@ class LocalApiServer(
                             put(
                                 "mobilecore",
                                 JSONObject().apply {
-                                    put("path", model.path)
                                     put("format", model.format)
                                     put("backend", model.backend)
                                     put("quantization", model.quantization)
@@ -491,15 +535,21 @@ class LocalApiServer(
     }
 
     private fun buildMetrics(metrics: ai.mobilecore.runtime.RuntimeMetrics): String {
+        val completed = requestsCompleted.get()
+        val averageDecodeTokensPerSecond = if (completed > 0) {
+            decodeTokensPerSecondTotal.sum() / completed.toDouble()
+        } else {
+            0.0
+        }
         val payload = JSONObject()
         payload.put("active_model", metrics.activeModel)
         payload.put("backend", metrics.backend)
-        payload.put("uptime_seconds", 0)
-        payload.put("requests_total", 0)
-        payload.put("requests_failed", 0)
+        payload.put("uptime_seconds", ((System.currentTimeMillis() - startedAtMs) / 1000L).coerceAtLeast(0L))
+        payload.put("requests_total", requestsTotal.get())
+        payload.put("requests_failed", requestsFailed.get())
         payload.put("last_prompt_eval_ms", metrics.promptEvalMs)
         payload.put("last_decode_tokens_per_second", metrics.decodeTokensPerSecond)
-        payload.put("average_decode_tokens_per_second", metrics.decodeTokensPerSecond)
+        payload.put("average_decode_tokens_per_second", averageDecodeTokensPerSecond)
         payload.put("last_first_token_ms", metrics.firstTokenMs)
         payload.put("last_decode_ms", metrics.decodeMs)
         payload.put("last_total_ms", metrics.totalMs)
@@ -668,7 +718,6 @@ class LocalApiServer(
                 put(
                     JSONObject().apply {
                         put("model_id", recommendation.modelId)
-                        put("path", recommendation.path)
                         put("size_bytes", recommendation.sizeBytes)
                         put("estimated_memory_mb", recommendation.estimatedMemoryMb)
                         put("fit", recommendation.fit.name.lowercase())
