@@ -11,6 +11,7 @@ import ai.mobilecore.runtime.ModelManager
 import ai.mobilecore.runtime.MultimodalRuntimeBackend
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeMetrics
+import ai.mobilecore.runtime.RuntimeMultimodalStatus
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import fi.iki.elonen.NanoHTTPD
@@ -36,6 +37,8 @@ class LocalMultimodalApiSmokeTest {
     private val backend = RecordingBackend()
     private lateinit var server: LocalApiServer
     private lateinit var controlModel: File
+    private lateinit var controlProjector: File
+    private lateinit var incompatibleProjector: File
     private val port = 18_083
 
     @Before
@@ -43,6 +46,12 @@ class LocalMultimodalApiSmokeTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         controlModel = context.filesDir.resolve("models/control-test-q4_k_m.gguf").apply {
             parentFile?.mkdirs()
+            writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46))
+        }
+        controlProjector = context.filesDir.resolve("models/mmproj-control-test-bf16.gguf").apply {
+            writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46))
+        }
+        incompatibleProjector = context.filesDir.resolve("models/mmproj-other-family-bf16.gguf").apply {
             writeBytes(byteArrayOf(0x47, 0x47, 0x55, 0x46))
         }
         server = LocalApiServer(
@@ -59,6 +68,8 @@ class LocalMultimodalApiSmokeTest {
     fun stopServer() {
         server.stop()
         controlModel.delete()
+        controlProjector.delete()
+        incompatibleProjector.delete()
     }
 
     @Test
@@ -67,13 +78,27 @@ class LocalMultimodalApiSmokeTest {
         assertEquals(200, models.code)
         assertFalse(models.body.contains("\"path\""))
         val ids = JSONObject(models.body).getJSONArray("data")
-        assertTrue((0 until ids.length()).any {
-            ids.getJSONObject(it).getString("id") == "control-test-q4_k_m"
-        })
+        val controlled = (0 until ids.length())
+            .map { ids.getJSONObject(it) }
+            .first { it.getString("id") == "control-test-q4_k_m" }
+        val controlledMetadata = controlled.getJSONObject("mobilecore")
+        assertEquals("mmproj-control-test-bf16", controlledMetadata.getString("projector_id"))
+        assertTrue(controlledMetadata.getJSONObject("capabilities").getBoolean("image_input"))
 
         val recommendations = request("GET", "/v1/recommendations")
         assertEquals(200, recommendations.code)
         assertFalse(recommendations.body.contains("\"path\""))
+
+        val incompatible = request(
+            method = "POST",
+            path = "/mobilecore/model/load",
+            body = JSONObject()
+                .put("model_id", "control-test-q4_k_m")
+                .put("projector_id", "mmproj-other-family-bf16")
+                .toString(),
+        )
+        assertEquals(400, incompatible.code)
+        assertEquals("invalid_request", errorCode(incompatible.body))
 
         val loaded = request(
             method = "POST",
@@ -84,7 +109,10 @@ class LocalMultimodalApiSmokeTest {
                 .toString(),
         )
         assertEquals(200, loaded.code)
-        assertEquals("control-test-q4_k_m", JSONObject(loaded.body).getString("model"))
+        val loadedJson = JSONObject(loaded.body)
+        assertEquals("control-test-q4_k_m", loadedJson.getString("model"))
+        assertEquals("mmproj-control-test-bf16", loadedJson.getString("projector_id"))
+        assertTrue(loadedJson.getJSONObject("capabilities").getBoolean("image_input"))
 
         val metrics = request("GET", "/metrics")
         assertEquals("control-test-q4_k_m", JSONObject(metrics.body).getString("active_model"))
@@ -300,6 +328,7 @@ class LocalMultimodalApiSmokeTest {
 
         override fun unloadModel(): Boolean {
             activeModel = null
+            activeProjector = null
             return true
         }
 
@@ -312,6 +341,22 @@ class LocalMultimodalApiSmokeTest {
             emptySequence()
 
         override fun metrics() = RuntimeMetrics(activeModel = activeModel, backend = "instrumented-fake")
+
+        private var activeProjector: String? = null
+
+        override fun loadProjector(
+            projectorPath: String,
+            projectorId: String,
+            threads: Int,
+        ): Boolean {
+            activeProjector = projectorId
+            return true
+        }
+
+        override fun multimodalStatus() = RuntimeMultimodalStatus(
+            projectorId = activeProjector,
+            imageInput = activeProjector != null,
+        )
 
         override fun mediaChat(
             modelId: String,

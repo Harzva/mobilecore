@@ -38,7 +38,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama.cpp bridge, and foreground localhost API |
 | Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, recommendations, and model-ID load/unload routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
-| Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload through app buttons or local API |
+| Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload text models and compatible main-GGUF/mmproj vision pairs through app buttons or local API |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
 | TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, MobileCore localhost speed calls, signed result checks, Supabase-ready shared leaderboard, local fallback entries, and custom board JSON flow |
@@ -158,7 +158,7 @@ curl -X POST http://127.0.0.1:8080/mobilecore/model/unload \
   -d '{}'
 ```
 
-`/v1/models` and `/v1/recommendations` return public model identifiers and never return absolute model paths. The Android UI and MobileCode use the same `model_id` control contract. The legacy path input remains only for bounded host QA compatibility.
+`/v1/models` and `/v1/recommendations` return public model identifiers and never return absolute model paths. A compatible `mmproj-*.gguf` is exposed as projector metadata on its main model, not as a standalone language model. Loading by `model_id` auto-pairs one unambiguous same-family projector; an optional public `projector_id` is accepted and compatibility-checked. The legacy path input remains only for bounded host QA compatibility.
 
 The Android local API allows the GitHub Pages origin `https://harzva.github.io` plus localhost dev origins, including Private Network Access preflight headers. TuiMa Push verifies the `mobilecore.benchmark_signature` returned by `/v1/chat/completions` before sending a result to the shared Supabase leaderboard.
 
@@ -168,7 +168,7 @@ MobileCore reports the active model, runtime, revision, backend, quantization, c
 
 The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
 
-On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests from the MobileCode instrumentation process to MobileCore: 15 buffered completions and 15 SSE completions. Model unload/reload, background continuity, low-memory notification, and process restart recovery also passed. Only one model and no physical Android device were available, so cross-model and physical thermal/device claims remain open.
+On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests from the MobileCode instrumentation process to MobileCore: 15 buffered completions and 15 SSE completions. Model unload/reload, a real Qwen2.5-to-Qwen3 switch, background continuity, low-memory notification, and process restart recovery also passed. A separate real Qwen3.5 0.8B GGUF/mmproj run completed an image request through the unified API. The tested image was classified incorrectly, so this proves the local multimodal chain rather than model accuracy. No physical Android device was available; physical thermal/device claims remain open.
 
 ## Benchmarks
 

@@ -15,6 +15,20 @@ data class RuntimeModel(
     val metadataSource: String = "filename"
 )
 
+data class RuntimeProjector(
+    val id: String,
+    val path: String,
+    val sizeBytes: Long,
+    val modelFamily: String,
+)
+
+data class RuntimeMultimodalStatus(
+    val projectorId: String? = null,
+    val imageInput: Boolean = false,
+    val audioInput: Boolean = false,
+    val audioSampleRateHz: Int = 0,
+)
+
 data class ChatMessage(
     val role: String,
     val content: String
