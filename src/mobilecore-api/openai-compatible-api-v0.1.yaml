@@ -1,11 +1,12 @@
 openapi: 3.0.3
 info:
   title: MobileCore Local OpenAI-Compatible API
-  version: 0.1.4-rc1
+  version: 0.1.4-rc2
   description: |
-    Loopback-only API for MobileCode and other local clients. The llama.cpp/libmtmd
-    Qwen2.5-Omni route supports text, image, and audio input with text output only.
-    Video input and audio output are not implemented.
+    Loopback-only API for MobileCode and other local clients. Compatible GGUF
+    main-model and mmproj pairs use llama.cpp/libmtmd for local image input.
+    The pinned Qwen2.5-Omni route may additionally expose audio input after its
+    verified pair and runtime probe succeed. Video input and audio output are not implemented.
 servers:
   - url: http://127.0.0.1:8080
 paths:
@@ -118,6 +119,9 @@ paths:
               required: [model_id]
               properties:
                 model_id: {type: string}
+                projector_id:
+                  type: string
+                  description: Optional public ID for an unambiguous, same-family mmproj artifact.
                 context_length: {type: integer, minimum: 128, maximum: 32768, default: 4096}
                 threads: {type: integer, minimum: 1, maximum: 16, default: 4}
       responses:
@@ -270,8 +274,19 @@ components:
             context_length:
               type: integer
               example: 4096
+            size_bytes:
+              type: integer
+              format: int64
             loaded:
               type: boolean
+            projector_id:
+              type: string
+              nullable: true
+            projector_size_bytes:
+              type: integer
+              format: int64
+            capabilities:
+              $ref: '#/components/schemas/ModalityCapabilities'
     ChatMessage:
       type: object
       required: [role, content]

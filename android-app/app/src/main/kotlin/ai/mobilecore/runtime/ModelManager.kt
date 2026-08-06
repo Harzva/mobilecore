@@ -62,6 +62,26 @@ class ModelManager(
         }
     }
 
+    fun scanProjectors(): List<RuntimeProjector> {
+        return modelDirectories()
+            .flatMap { dir ->
+                dir.listFiles { file ->
+                    file.isFile &&
+                        file.extension.lowercase() == "gguf" &&
+                        file.name.startsWith("mmproj-", ignoreCase = true)
+                }?.toList() ?: emptyList()
+            }
+            .distinctBy { it.absolutePath }
+            .map { file ->
+                RuntimeProjector(
+                    id = file.nameWithoutExtension,
+                    path = file.absolutePath,
+                    sizeBytes = file.length(),
+                    modelFamily = pairingKey(file.nameWithoutExtension, projector = true),
+                )
+            }
+    }
+
     fun defaultModelId(): String = "local-model"
 
     fun firstAvailableModel(): RuntimeModel? {
@@ -77,7 +97,51 @@ class ModelManager(
         }
     }
 
+    fun projectorById(projectorId: String): RuntimeProjector? {
+        val normalized = projectorId.trim()
+        if (normalized.isEmpty()) return null
+        return scanProjectors().firstOrNull { projector ->
+            projector.sizeBytes > 0 && projector.id.equals(normalized, ignoreCase = true)
+        }
+    }
+
+    /**
+     * Auto-pair only when exactly one same-directory projector has the same
+     * normalized model family. Ambiguous projector sets require an explicit
+     * public projector_id at the API boundary.
+     */
+    fun projectorForModel(modelId: String): RuntimeProjector? {
+        val model = modelById(modelId) ?: return null
+        val family = pairingKey(model.id, projector = false)
+        val modelParent = File(model.path).parentFile?.absolutePath ?: return null
+        return scanProjectors().filter { projector ->
+            File(projector.path).parentFile?.absolutePath == modelParent &&
+                projector.modelFamily == family
+        }.singleOrNull()
+    }
+
+    fun isProjectorCompatible(modelId: String, projectorId: String): Boolean {
+        val model = modelById(modelId) ?: return false
+        val projector = projectorById(projectorId) ?: return false
+        return File(model.path).parentFile?.absolutePath ==
+            File(projector.path).parentFile?.absolutePath &&
+            pairingKey(model.id, projector = false) == projector.modelFamily
+    }
+
     fun modelDirectories(): List<File> {
         return listOfNotNull(internalModelDir, externalModelDir)
+    }
+
+    private fun pairingKey(value: String, projector: Boolean): String {
+        var normalized = value.removeSuffix(".gguf").lowercase()
+        if (projector) normalized = normalized.removePrefix("mmproj-").removePrefix("mmproj_")
+        normalized = normalized
+            .replace("qwen_qwen", "qwen")
+            .replace("qwen-qwen", "qwen")
+            .replace(
+                Regex("(?i)[-_.](?:q[2-8](?:_[a-z0-9]+)*|bf16|f16|fp16|fp32)$"),
+                "",
+            )
+        return normalized.replace(Regex("[^a-z0-9.]+"), "-").trim('-')
     }
 }

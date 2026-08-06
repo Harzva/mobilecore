@@ -9,9 +9,12 @@ import ai.mobilecore.runtime.ChatResult
 import ai.mobilecore.runtime.ChatToken
 import ai.mobilecore.runtime.LoadOptions
 import ai.mobilecore.runtime.LoadResult
+import ai.mobilecore.runtime.MultimodalRuntimeBackend
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeMetrics
+import ai.mobilecore.runtime.RuntimeMultimodalStatus
 import ai.mobilecore.runtime.RuntimeModel
+import ai.mobilecore.runtime.RuntimeProjector
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -128,6 +131,55 @@ class OmniLocalControllerTest {
         assertFalse(health.getJSONObject("artifacts").getJSONObject("mmproj").getBoolean("present"))
     }
 
+    @Test
+    fun genericVerifiedRuntimeProbeAdvertisesImageWithoutClaimingArtifactDigest() {
+        val model = RuntimeModel(
+            id = "qwen3.5-0.8b-q4_k_m",
+            path = root.resolve("qwen3.5-0.8b-q4_k_m.gguf").absolutePath,
+            format = "gguf",
+            backend = "llama.cpp",
+            quantization = "Q4_K_M",
+            contextLength = 2048,
+            sizeBytes = 579_615_840L,
+            loaded = true,
+        )
+        val projector = RuntimeProjector(
+            id = "mmproj-qwen3.5-0.8b-bf16",
+            path = root.resolve("mmproj-qwen3.5-0.8b-bf16.gguf").absolutePath,
+            sizeBytes = 207_346_400L,
+            modelFamily = "qwen3.5-0.8b",
+        )
+        val health = OmniLocalController(
+            backend = ActiveMultimodalTestRuntimeBackend(model.id, projector.id),
+            version = "test",
+            installDirectory = root,
+            environmentProbe = OmniInstallEnvironmentProbe {
+                OmniInstallEnvironment(
+                    availableMemoryBytes = 1_500_000_000L,
+                    availableStorageBytes = 1_000_000_000L,
+                    wifiConnected = false,
+                )
+            },
+            runtimeInfo = { JSONObject().put("modelLoaded", true) },
+            activeModelQuantization = { model.quantization },
+            activeModelLookup = { model },
+            activeProjectorLookup = { projector },
+        ).health()
+
+        assertEquals("llama.cpp/libmtmd", health.getString("runtime"))
+        assertTrue(health.getJSONObject("capabilities").getBoolean("image_input"))
+        assertFalse(health.getJSONObject("capabilities").getBoolean("audio_input"))
+        val artifact = health.getJSONObject("artifacts").getJSONObject("mmproj")
+        assertEquals("mmproj-qwen3.5-0.8b-bf16.gguf", artifact.getString("file_name"))
+        assertTrue(artifact.getBoolean("present"))
+        assertFalse(artifact.getBoolean("verified"))
+        assertTrue(artifact.isNull("digest"))
+        assertEquals(
+            model.sizeBytes + projector.sizeBytes + 128L * 1024L * 1024L,
+            health.getJSONObject("preflight").getJSONObject("memory").getLong("required_bytes"),
+        )
+    }
+
     private fun controller(): OmniLocalController {
         val backend = TestRuntimeBackend()
         return OmniLocalController(
@@ -177,4 +229,33 @@ private class ActiveTestRuntimeBackend(private val modelId: String) : RuntimeBac
         emptySequence()
 
     override fun metrics() = RuntimeMetrics(activeModel = modelId, backend = "test")
+}
+
+private class ActiveMultimodalTestRuntimeBackend(
+    private val modelId: String,
+    private val projectorId: String,
+) : RuntimeBackend, MultimodalRuntimeBackend {
+    override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
+    override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(true, modelId, 0, 0)
+    override fun unloadModel() = true
+    override fun isModelLoaded() = true
+    override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
+        ChatResult(model = options.model, message = "not used")
+
+    override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
+        emptySequence()
+
+    override fun metrics() = RuntimeMetrics(activeModel = modelId, backend = "test")
+    override fun multimodalStatus() = RuntimeMultimodalStatus(
+        projectorId = projectorId,
+        imageInput = true,
+    )
+
+    override fun mediaChat(
+        modelId: String,
+        mediaPath: String,
+        mediaType: String,
+        prompt: String,
+        maxTokens: Int,
+    ) = ChatResult(model = modelId, message = "not used")
 }

@@ -2,10 +2,12 @@ package ai.mobilecore.runtime
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import org.json.JSONObject
 
 class MockRuntimeBackend(private val context: Context) : RuntimeBackend, MultimodalRuntimeBackend {
     private var activeModel: String? = null
+    private var activeProjector: String? = null
     private var lastMetrics: RuntimeMetrics = RuntimeMetrics(
         activeModel = null,
         backend = "android-llama-cpp-stub"
@@ -36,6 +38,7 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
 
     override fun loadModel(modelPath: String, options: LoadOptions): LoadResult {
         val start = SystemClock.elapsedRealtime()
+        activeProjector = null
         val nativeResult = JSONObject(
             RuntimeBridge.loadModel(modelPath, options.contextLength, options.threads)
         )
@@ -67,11 +70,49 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         val hadModel = activeModel != null
         RuntimeBridge.unload()
         activeModel = null
+        activeProjector = null
         lastMetrics = RuntimeMetrics(activeModel = null, backend = backendInfo().id)
         return hadModel
     }
 
     override fun isModelLoaded(): Boolean = activeModel != null
+
+    override fun loadProjector(
+        projectorPath: String,
+        projectorId: String,
+        threads: Int,
+    ): Boolean {
+        if (activeModel == null) return false
+        val result = runCatching {
+            JSONObject(
+                RuntimeBridge.loadMtmdProjector(
+                    projectorPath = projectorPath,
+                    threads = threads,
+                    imageMaxTokens = 256,
+                ),
+            )
+        }.getOrNull()
+        val ok = result?.optBoolean("ok", false) == true
+        if (!ok) {
+            Log.e(
+                "MobileCoreRuntime",
+                "projector_load_failed code=${result?.optString("code", "model_load_failed") ?: "model_load_failed"}",
+            )
+        }
+        activeProjector = projectorId.takeIf { ok }
+        return ok
+    }
+
+    override fun multimodalStatus(): RuntimeMultimodalStatus {
+        val projectorId = activeProjector ?: return RuntimeMultimodalStatus()
+        val native = runCatching { JSONObject(RuntimeBridge.info()) }.getOrElse { JSONObject() }
+        return RuntimeMultimodalStatus(
+            projectorId = projectorId,
+            imageInput = native.optBoolean("visionInput", false),
+            audioInput = native.optBoolean("audioInput", false),
+            audioSampleRateHz = native.optInt("audioSampleRate", 0),
+        )
+    }
 
     override fun chat(messages: List<ChatMessage>, options: ChatOptions): ChatResult {
         val prompt = messages.joinToString("\n") { "${it.role}: ${it.content}" }

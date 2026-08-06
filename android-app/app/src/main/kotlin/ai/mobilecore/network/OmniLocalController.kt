@@ -16,10 +16,12 @@ import ai.mobilecore.runtime.LoadOptions
 import ai.mobilecore.runtime.MobileCoreHealthSnapshot
 import ai.mobilecore.runtime.ModelManager
 import ai.mobilecore.runtime.ModalityCapabilities
+import ai.mobilecore.runtime.MultimodalRuntimeBackend
 import ai.mobilecore.runtime.ResourcePreflightHealth
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.runtime.RuntimeModel
+import ai.mobilecore.runtime.RuntimeProjector
 import android.content.Context
 import org.json.JSONObject
 import java.io.File
@@ -46,6 +48,7 @@ internal class OmniLocalController(
     },
     private val activeModelQuantization: (String?) -> String = { "unknown" },
     private val activeModelLookup: (String?) -> RuntimeModel? = { null },
+    private val activeProjectorLookup: (String?) -> RuntimeProjector? = { null },
 ) {
     constructor(
         context: Context,
@@ -66,6 +69,9 @@ internal class OmniLocalController(
         activeModelLookup = { activeModel ->
             activeModel?.let(modelManager::modelById)
         },
+        activeProjectorLookup = { projectorId ->
+            projectorId?.let(modelManager::projectorById)
+        },
     )
 
     fun health(): JSONObject {
@@ -77,22 +83,37 @@ internal class OmniLocalController(
         val mmproj = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
         val activeModel = backend.metrics().activeModel
         val activeRuntimeModel = activeModelLookup(activeModel)
+        val runtimeMultimodal = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
+        val activeRuntimeProjector = activeProjectorLookup(runtimeMultimodal?.projectorId)
         val qwenOmniLoaded = loaded && snapshot.pairVerified && activeModel.equals(
             main.fileName.removeSuffix(".gguf"),
             ignoreCase = true,
         )
+        val genericMultimodalLoaded = loaded &&
+            activeRuntimeModel != null &&
+            activeRuntimeProjector != null &&
+            (runtimeMultimodal?.imageInput == true || runtimeMultimodal?.audioInput == true)
+        val multimodalLoaded = qwenOmniLoaded || genericMultimodalLoaded
         val base = MobileCoreHealthSnapshot(
             version = version,
             activeModel = activeModel,
             quantization = activeModelQuantization(activeModel),
             modelLoaded = loaded,
-            runtime = if (qwenOmniLoaded) "llama.cpp/libmtmd" else "llama.cpp",
+            runtime = if (multimodalLoaded) "llama.cpp/libmtmd" else "llama.cpp",
             backend = "cpu",
             llamaRevision = Qwen25Omni3bArtifacts.LLAMA_CPP_REVISION,
             capabilities = ModalityCapabilities(
                 textInput = loaded,
-                imageInput = qwenOmniLoaded && native.optBoolean("visionInput", false),
-                audioInput = qwenOmniLoaded && native.optBoolean("audioInput", false),
+                imageInput = when {
+                    qwenOmniLoaded -> native.optBoolean("visionInput", false)
+                    genericMultimodalLoaded -> runtimeMultimodal?.imageInput == true
+                    else -> false
+                },
+                audioInput = when {
+                    qwenOmniLoaded -> native.optBoolean("audioInput", false)
+                    genericMultimodalLoaded -> runtimeMultimodal?.audioInput == true
+                    else -> false
+                },
                 videoInput = false,
                 textOutput = loaded,
                 audioOutput = false,
@@ -114,7 +135,15 @@ internal class OmniLocalController(
                     verified = snapshot.main.verified,
                 )
             },
-            projectorArtifact = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
+            projectorArtifact = if (genericMultimodalLoaded && activeRuntimeProjector != null) {
+                ArtifactHealth(
+                    fileName = File(activeRuntimeProjector.path).name,
+                    expectedSha256 = "",
+                    expectedBytes = activeRuntimeProjector.sizeBytes,
+                    present = true,
+                    verified = false,
+                )
+            } else if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
                 ArtifactHealth(
                     fileName = "",
                     expectedSha256 = "",
@@ -132,7 +161,7 @@ internal class OmniLocalController(
                 )
             },
             preflight = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
-                ordinaryModelPreflight(activeRuntimeModel, environment)
+                ordinaryModelPreflight(activeRuntimeModel, activeRuntimeProjector, environment)
             } else {
                 ResourcePreflightHealth(
                     availableMemoryBytes = environment.availableMemoryBytes,
@@ -143,16 +172,21 @@ internal class OmniLocalController(
             },
         ).toJson()
         base.put("install", snapshotJson(snapshot, environment.wifiConnected))
-        base.put("audio_sample_rate_hz", native.optInt("audioSampleRate", 0))
+        base.put(
+            "audio_sample_rate_hz",
+            if (genericMultimodalLoaded) runtimeMultimodal?.audioSampleRateHz ?: 0
+            else native.optInt("audioSampleRate", 0),
+        )
         return base
     }
 
     private fun ordinaryModelPreflight(
         model: RuntimeModel,
+        projector: RuntimeProjector?,
         environment: ai.mobilecore.omni.artifact.OmniInstallEnvironment,
     ): ResourcePreflightHealth {
         val contextOverheadBytes = 128L * 1024L * 1024L
-        val requiredMemoryBytes = (model.sizeBytes + contextOverheadBytes)
+        val requiredMemoryBytes = (model.sizeBytes + (projector?.sizeBytes ?: 0L) + contextOverheadBytes)
             .coerceAtLeast(contextOverheadBytes)
         return ResourcePreflightHealth(
             availableMemoryBytes = environment.availableMemoryBytes,

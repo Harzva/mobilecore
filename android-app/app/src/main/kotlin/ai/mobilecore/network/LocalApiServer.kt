@@ -9,6 +9,7 @@ import ai.mobilecore.runtime.ModelBenchmark
 import ai.mobilecore.runtime.ModelBenchmarkStore
 import ai.mobilecore.runtime.DeviceProbe
 import ai.mobilecore.runtime.ModelManager
+import ai.mobilecore.runtime.MultimodalRuntimeBackend
 import ai.mobilecore.runtime.RecommendationScoringConfig
 import ai.mobilecore.runtime.RecommendationScoringConfigSource
 import ai.mobilecore.runtime.RuntimeBackend
@@ -37,7 +38,7 @@ class LocalApiServer(
     port: Int = 8080
 ) : NanoHTTPD("127.0.0.1", port) {
     private val logTag = "MobileCoreApi"
-    private val apiVersion = "0.1.4-rc1"
+    private val apiVersion = "0.1.4-rc2"
     private val startedAtMs = System.currentTimeMillis()
     private val requestsTotal = AtomicLong(0)
     private val requestsFailed = AtomicLong(0)
@@ -389,11 +390,15 @@ class LocalApiServer(
             val request = JSONObject(body)
             val requestedModelId = request.optString("model_id", "").trim()
             val requestedPath = request.optString("path", "")
-            val model = when {
-                requestedModelId.isNotBlank() -> modelManager.modelById(requestedModelId)?.path ?: ""
-                requestedPath.isNotBlank() -> requestedPath
-                else -> modelManager.firstAvailableModel()?.path ?: ""
+            val runtimeModel = when {
+                requestedModelId.isNotBlank() -> modelManager.modelById(requestedModelId)
+                requestedPath.isNotBlank() -> modelManager.scanModels().firstOrNull { candidate ->
+                    runCatching { File(candidate.path).canonicalPath == File(requestedPath).canonicalPath }
+                        .getOrDefault(false)
+                }
+                else -> modelManager.firstAvailableModel()
             }
+            val model = runtimeModel?.path ?: requestedPath
 
             if (model.isBlank()) {
                 return apiError(ApiFailureCode.ARTIFACT_MISSING, "required model artifact is missing")
@@ -421,8 +426,44 @@ class LocalApiServer(
             )
             val result = backend.loadModel(modelFile.absolutePath, options)
             if (!result.ok) {
+                Log.e(logTag, "model_load_failed stage=main model_id=${runtimeModel?.id ?: "legacy"}")
                 return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
             }
+
+            val requestedProjectorId = request.optString("projector_id", "").trim()
+            val projector = when {
+                requestedProjectorId.isNotBlank() -> modelManager.projectorById(requestedProjectorId)
+                runtimeModel != null -> modelManager.projectorForModel(runtimeModel.id)
+                else -> null
+            }
+            if (requestedProjectorId.isNotBlank() && projector == null) {
+                backend.unloadModel()
+                return apiError(ApiFailureCode.ARTIFACT_MISSING, "required model artifact is missing")
+            }
+            if (requestedProjectorId.isNotBlank() &&
+                (runtimeModel == null ||
+                    !modelManager.isProjectorCompatible(runtimeModel.id, requestedProjectorId))
+            ) {
+                backend.unloadModel()
+                return apiError(ApiFailureCode.INVALID_REQUEST, "projector is not compatible with the selected model")
+            }
+            if (projector != null) {
+                val multimodal = backend as? MultimodalRuntimeBackend
+                val projectorLoaded = multimodal?.loadProjector(
+                    projectorPath = projector.path,
+                    projectorId = projector.id,
+                    threads = options.threads,
+                ) == true
+                if (!projectorLoaded) {
+                    Log.e(
+                        logTag,
+                        "model_load_failed stage=projector model_id=${runtimeModel?.id ?: "legacy"} projector_id=${projector.id}",
+                    )
+                    backend.unloadModel()
+                    return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "model failed to load")
+                }
+            }
+            val multimodalStatus = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
 
             okResponse(
                 JSONObject().apply {
@@ -431,6 +472,15 @@ class LocalApiServer(
                     put("load_time_ms", result.loadTimeMs)
                     put("memory_used_mb", result.memoryUsedMb)
                     put("backend", backend.backendInfo().id)
+                    put("projector_id", projector?.id ?: JSONObject.NULL)
+                    put("capabilities", JSONObject().apply {
+                        put("text_input", true)
+                        put("image_input", multimodalStatus?.imageInput == true)
+                        put("audio_input", multimodalStatus?.audioInput == true)
+                        put("video_input", false)
+                        put("text_output", true)
+                        put("audio_output", false)
+                    })
                 }.toString(2)
             )
         } catch (e: Exception) {
@@ -502,6 +552,7 @@ class LocalApiServer(
             "data",
             JSONArray().apply {
                 models.forEach { model ->
+                    val projector = modelManager.projectorForModel(model.id)
                     put(
                         JSONObject().apply {
                             put("id", model.id)
@@ -521,6 +572,16 @@ class LocalApiServer(
                                     put("parameter_count_b", model.parameterCountB)
                                     put("parameter_label", model.parameterLabel)
                                     put("metadata_source", model.metadataSource)
+                                    put("projector_id", projector?.id ?: JSONObject.NULL)
+                                    put("projector_size_bytes", projector?.sizeBytes ?: 0L)
+                                    put("capabilities", JSONObject().apply {
+                                        put("text_input", true)
+                                        put("image_input", projector != null)
+                                        put("audio_input", false)
+                                        put("video_input", false)
+                                        put("text_output", true)
+                                        put("audio_output", false)
+                                    })
                                     benchmarkFor(model, benchmarks)?.let { benchmark ->
                                         put("benchmark", benchmarkJson(benchmark))
                                     }
@@ -725,12 +786,23 @@ class LocalApiServer(
                         put("expected_tokens_per_second", recommendation.expectedTokensPerSecond)
                         put("loaded", recommendation.loaded)
                         if (model != null) {
+                            val projector = modelManager.projectorForModel(model.id)
                             put("architecture", model.architecture)
                             put("parameter_count_b", model.parameterCountB)
                             put("parameter_label", model.parameterLabel)
                             put("quantization", model.quantization)
                             put("context_length", model.contextLength)
                             put("metadata_source", model.metadataSource)
+                            put("projector_id", projector?.id ?: JSONObject.NULL)
+                            put("projector_size_bytes", projector?.sizeBytes ?: 0L)
+                            put("capabilities", JSONObject().apply {
+                                put("text_input", true)
+                                put("image_input", projector != null)
+                                put("audio_input", false)
+                                put("video_input", false)
+                                put("text_output", true)
+                                put("audio_output", false)
+                            })
                         }
                         recommendation.benchmark?.let { benchmark ->
                             put("benchmark", benchmarkJson(benchmark))

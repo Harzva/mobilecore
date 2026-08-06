@@ -19,7 +19,9 @@ The health response must expose these booleans independently:
 }
 ```
 
-For the llama.cpp Qwen2.5-Omni-3B route, MobileCode may offer text, image, and audio input only when the model pair is loaded and the corresponding runtime capability is true. It must not show video input or speech-output controls.
+For a compatible llama.cpp/libmtmd main-model and mmproj pair, MobileCode may offer image input only after the pair is loaded and the runtime capability probe reports `image_input=true`. For the pinned Qwen2.5-Omni-3B route, audio input additionally requires the verified Omni pair and `audio_input=true`. MobileCode must not show video input or speech-output controls.
+
+The model list exposes a candidate capability when MobileCore finds exactly one compatible mmproj beside a main GGUF. This is discovery metadata, not proof that the projector can load. The active `/health` response remains the runtime truth used to enable attachment controls.
 
 Health must also expose the active model ID, runtime/backend and revision, quantization, loaded state, main/mmproj expected digests, local verification state, and memory/storage preflight. Artifact verification should come from `OmniArtifactInstaller.snapshot()`; health requests must not rehash both large files.
 
@@ -60,6 +62,7 @@ MobileCode may display MobileCore’s artifact/preflight state, but MobileCore o
 Authenticated lifecycle routes are:
 
 - `POST /mobilecore/model/load` with `{"model_id":"<id>"}` for an already installed GGUF model
+- `POST /mobilecore/model/load` may include a public `projector_id` when automatic pairing is ambiguous; MobileCore rejects a projector from another directory or model family
 - `POST /mobilecore/model/unload` to release the active text model without deleting artifacts
 
 - `GET /mobilecore/omni/status`
@@ -72,3 +75,5 @@ Authenticated lifecycle routes are:
 `install` requires `{"explicit_consent":true,"accepted_license_id":"qwen-research","wifi_only":true}`. It starts an asynchronous app-private download only after preflight passes; MobileCode polls `status` and never receives an artifact path.
 
 MobileCode must switch ordinary installed models by public `model_id`. The legacy `path` load field remains accepted for host QA compatibility, but must not be emitted, persisted, or submitted by MobileCode.
+
+Generic imported pairs report artifact presence but remain `verified=false` until a trusted manifest/digest flow verifies them. A successful native runtime probe may make local image inference available, but neither app may translate that into a checksum or model-quality claim.
