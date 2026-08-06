@@ -24,6 +24,7 @@ import ai.mobilecore.runtime.BenchmarkResult
 import ai.mobilecore.runtime.BenchmarkScorer
 import ai.mobilecore.runtime.BenchmarkSpec
 import ai.mobilecore.runtime.GgufMetadataReader
+import ai.mobilecore.runtime.ModelLoadStatusContract
 import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.g2d.G2dBranchTool
 import ai.mobilecore.g2d.OxfordPetsG2dRunner
@@ -48,6 +49,10 @@ import ai.mobilecore.ui.G2dValidationRunState
 import ai.mobilecore.ui.G2dValidationScreen
 import ai.mobilecore.ui.HomeScreenPresenter
 import ai.mobilecore.ui.IconBadgeView
+import ai.mobilecore.ui.ModelLifecyclePhase
+import ai.mobilecore.ui.ModelLifecyclePresenter
+import ai.mobilecore.ui.ModelLifecycleTone
+import ai.mobilecore.ui.ModelLifecycleUiModel
 import ai.mobilecore.ui.Palette
 import ai.mobilecore.ui.ResultsScreenPresenter
 import ai.mobilecore.ui.StandardModelDownloadPhase
@@ -62,10 +67,12 @@ import android.Manifest
 import android.app.Activity
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -80,7 +87,9 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -99,6 +108,7 @@ import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.widget.TextViewCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -187,6 +197,41 @@ class MainActivity : Activity() {
     private var modelScopeStatusText: TextView? = null
     private var modelScopeResultsContainer: LinearLayout? = null
     private var activeModelPath: String? = null
+    private var pendingModelPath: String? = null
+    private var modelLoadFailurePath: String? = null
+    private var modelLoadFailureMessage: String? = null
+    private var modelLoadReceiverRegistered = false
+    private val modelLoadStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ModelLoadStatusContract.ACTION) return
+            val modelPath = intent.getStringExtra(ModelLoadStatusContract.EXTRA_MODEL_PATH) ?: return
+            when (intent.getStringExtra(ModelLoadStatusContract.EXTRA_STATE)) {
+                ModelLoadStatusContract.STATE_LOADING -> {
+                    pendingModelPath = modelPath
+                    modelLoadFailurePath = null
+                    modelLoadFailureMessage = null
+                    updateStatus("正在加载模型")
+                }
+                ModelLoadStatusContract.STATE_LOADED -> {
+                    activeModelPath = modelPath
+                    pendingModelPath = null
+                    modelLoadFailurePath = null
+                    modelLoadFailureMessage = null
+                    updateStatus("模型已加载")
+                }
+                ModelLoadStatusContract.STATE_FAILED -> {
+                    if (activeModelPath == modelPath) activeModelPath = null
+                    pendingModelPath = null
+                    modelLoadFailurePath = modelPath
+                    modelLoadFailureMessage = intent.getStringExtra(ModelLoadStatusContract.EXTRA_MESSAGE)
+                    updateStatus("模型加载失败")
+                }
+            }
+            if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) {
+                renderCurrentTab()
+            }
+        }
+    }
     private val activeDownloadThreads = ConcurrentHashMap<String, Thread>()
     private val progressHandler = Handler(Looper.getMainLooper())
     private val modelScopeSearchRunnable = Runnable {
@@ -251,11 +296,11 @@ class MainActivity : Activity() {
         }
         contentRoot = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(10))
+            setPadding(dp(pageGutterDp()), dp(14), dp(pageGutterDp()), dp(10))
         }
         bottomNavHost = FrameLayout(this).apply {
             setBackgroundColor(Palette.background)
-            setPadding(dp(18), dp(3), dp(18), dp(8))
+            setPadding(dp(pageGutterDp()), dp(3), dp(pageGutterDp()), dp(8))
         }
 
         rootScrollView.addView(
@@ -271,8 +316,8 @@ class MainActivity : Activity() {
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             rootScrollView.setPadding(0, systemBars.top, 0, 0)
             rootScrollView.clipToPadding = true
-            contentRoot.setPadding(dp(18), dp(12), dp(18), dp(12))
-            bottomNavHost.setPadding(dp(18), dp(3), dp(18), max(dp(8), systemBars.bottom + dp(4)))
+            contentRoot.setPadding(dp(pageGutterDp()), dp(12), dp(pageGutterDp()), dp(12))
+            bottomNavHost.setPadding(dp(pageGutterDp()), dp(3), dp(pageGutterDp()), max(dp(8), systemBars.bottom + dp(4)))
             insets
         }
         setContentView(pageRoot)
@@ -289,6 +334,27 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!modelLoadReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                modelLoadStatusReceiver,
+                IntentFilter(ModelLoadStatusContract.ACTION),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            modelLoadReceiverRegistered = true
+        }
+    }
+
+    override fun onStop() {
+        if (modelLoadReceiverRegistered) {
+            unregisterReceiver(modelLoadStatusReceiver)
+            modelLoadReceiverRegistered = false
+        }
+        super.onStop()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(STATE_CURRENT_TAB, currentTab.name)
         super.onSaveInstanceState(outState)
@@ -297,6 +363,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         syncBenchmarkReadiness(render = false)
+        refreshRuntimeModelState()
         refreshRecommendationSnapshot()
     }
 
@@ -339,6 +406,9 @@ class MainActivity : Activity() {
     private fun setTab(tab: AppTab) {
         if (currentTab == tab) return
         currentTab = tab
+        // Reset synchronously so an immediate async refresh cannot capture the
+        // previous tab's scroll offset and restore it over the new screen.
+        rootScrollView.scrollTo(0, 0)
         renderCurrentTab(resetScroll = true)
         if (tab == AppTab.HOME || tab == AppTab.MODELS) {
             refreshRecommendationSnapshot()
@@ -347,14 +417,10 @@ class MainActivity : Activity() {
 
     private fun renderHomeTab(content: LinearLayout) {
         content.addView(buildHeader())
-        content.addView(space(28))
+        content.addView(space(18))
         content.addView(buildHomeIntro())
-        content.addView(space(16))
+        content.addView(space(14))
         content.addView(buildHomePrimaryCard())
-        if (requiredBenchmarkModel() == null) {
-            content.addView(space(12))
-            content.addView(buildRequiredModelDownloadCard())
-        }
         content.addView(space(12))
         content.addView(buildHomeReadinessCard())
         content.addView(space(12))
@@ -385,12 +451,8 @@ class MainActivity : Activity() {
 
     private fun renderTestTab(content: LinearLayout) {
         content.addView(buildCompactHeader("跑分", "本机 AI 性能测试", "play"))
-        content.addView(space(18))
+        content.addView(space(14))
         content.addView(buildTestChatCard())
-        if (requiredBenchmarkModel() == null) {
-            content.addView(space(12))
-            content.addView(buildRequiredModelDownloadCard())
-        }
         content.addView(space(12))
         content.addView(buildBenchmarkRequirementsCard())
     }
@@ -639,37 +701,41 @@ class MainActivity : Activity() {
     }
 
     private fun buildHeader(): View {
+        val lifecycle = requiredBenchmarkModelLifecycle()
+        val statusAccent = modelLifecycleAccent(lifecycle.tone)
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             orientation = LinearLayout.HORIZONTAL
-            minimumHeight = dp(58)
+            minimumHeight = dp(52)
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label("TuiMa", 24f, Palette.deepInk, Typeface.BOLD).apply { letterSpacing = -0.02f })
+                    addView(label("TuiMa", 21f, Palette.deepInk, Typeface.BOLD).apply { letterSpacing = -0.02f })
                     addView(space(2))
-                    addView(label("推嘛", 13f, Palette.mintDark, Typeface.BOLD))
+                    addView(label("端侧 AI 控制台", 11.5f, Palette.muted, Typeface.BOLD))
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
-            runtimeChipText = label("✓  本机就绪", 11.5f, Palette.mintDark, Typeface.BOLD)
+            runtimeChipText = label(lifecycle.statusLabel, 11f, statusAccent, Typeface.BOLD)
             addView(
-                chip(runtimeChipText, Palette.mintPale, Palette.mint),
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36))
+                chip(runtimeChipText, tint(statusAccent, 0.12f), statusAccent),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply { marginStart = dp(10) }
             )
-            contentDescription = "TuiMa 推嘛，本机就绪"
+            contentDescription = "TuiMa 端侧 AI 控制台，标准模型${lifecycle.statusLabel}"
         }
     }
 
     private fun buildHomeIntro(): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label("你的手机，", 28f, Palette.deepInk, Typeface.BOLD))
-            addView(space(2))
-            addView(label("能跑多快？", 28f, Palette.deepInk, Typeface.BOLD))
-            addView(space(8))
-            addView(label("统一模型与提示词，测出真实端侧 AI 性能。", 13f, Palette.muted, Typeface.NORMAL))
-            contentDescription = "你的手机能跑多快？统一模型与提示词，测出真实端侧 AI 性能"
+            addView(label("TODAY ON DEVICE", 10.5f, Palette.mintDark, Typeface.BOLD).apply { letterSpacing = 0.12f })
+            addView(space(7))
+            addView(autoSizeSingleLineLabel("端侧 AI，一眼看清", 27f, 21f, Palette.deepInk, Typeface.BOLD))
+            addView(space(7))
+            addView(label("模型是否可用、设备是否适合、跑分结果如何，都以本机真实状态为准。", 13f, Palette.muted, Typeface.NORMAL).apply {
+                setLineSpacing(dp(2).toFloat(), 1f)
+            })
+            contentDescription = "端侧 AI 一眼看清。模型、设备和跑分均以本机真实状态为准"
         }
     }
 
@@ -680,17 +746,13 @@ class MainActivity : Activity() {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label(title, 22f, Palette.deepInk, Typeface.BOLD))
+                    addView(label(title, 23f, Palette.deepInk, Typeface.BOLD))
                     addView(space(4))
-                    addView(label(subtitle, 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 1 })
+                    addView(label(subtitle, 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
                 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             )
             tag = icon
-            addView(
-                chip(label("本机", 11f, Palette.mintDark, Typeface.BOLD), Palette.mintPale, Palette.mint),
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32))
-            )
             contentDescription = "$title，$subtitle"
         }
     }
@@ -699,78 +761,101 @@ class MainActivity : Activity() {
         val state = benchmarkUiStateMachine.state
         val latest = latestScoredBenchmarkReport()
         val latestScore = latest?.optJSONObject("score")
-        val hasModel = requiredBenchmarkModel() != null
+        val modelFile = requiredBenchmarkModel()
+        val lifecycle = requiredBenchmarkModelLifecycle()
+        val accent = modelLifecycleAccent(lifecycle.tone)
         val headline = latestScore?.optInt("headline")
         val canonical = latestScore?.optInt("canonical")
 
-        return surfaceCard(Palette.mint, gradient = true) {
+        return surfaceCard(accent, gradient = true) {
+            addView(
+                LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            addView(label("标准跑分模型", 11f, Palette.muted, Typeface.BOLD))
+                            addView(space(4))
+                            addView(label("Qwen2.5 0.5B · Q4_K_M", 16.5f, Palette.deepInk, Typeface.BOLD).apply { maxLines = 2 })
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(
+                        chip(label(lifecycle.statusLabel, 10.8f, accent, Typeface.BOLD), tint(accent, 0.11f), accent),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)).apply { marginStart = dp(10) }
+                    )
+                }
+            )
+            addView(space(10))
+            addView(label(lifecycle.supportingText, 12.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
+
             if (headline != null && canonical != null) {
+                addView(space(16))
+                addView(thinDivider())
+                addView(space(14))
+                addView(label("最近成绩", 10.5f, Palette.muted, Typeface.BOLD))
+                addView(space(5))
                 addView(
-                    LinearLayout(context).apply {
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(
-                            LinearLayout(context).apply {
-                                orientation = LinearLayout.VERTICAL
-                                addView(
-                                    LinearLayout(context).apply {
-                                        gravity = Gravity.BOTTOM
-                                        addView(label(formatHeadlineScore(headline), 40f, Palette.blue, Typeface.BOLD))
-                                        addView(label("  TuiMa", 14f, Palette.deepInk, Typeface.BOLD).apply { setPadding(0, 0, 0, dp(5)) })
-                                    }
-                                )
-                                addView(space(5))
-                                addView(label("标准分 $canonical / 1000", 13.5f, Palette.muted, Typeface.BOLD))
-                            },
-                            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        )
-                        addView(IconBadgeView(context, "gauge", Palette.blue), LinearLayout.LayoutParams(dp(58), dp(58)).apply { marginStart = dp(10) })
-                    }
+                    autoSizeSingleLineLabel(formatHeadlineScore(headline), 34f, 24f, Palette.blue, Typeface.BOLD),
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 )
-            } else if (!hasModel) {
-                addView(cardHeader("标准模型尚未准备", "Qwen2.5 0.5B · 约 469 MB", "download", Palette.amber, "需下载", Palette.amber))
-                addView(space(4))
-            } else {
-                addView(cardHeader("等待第一次成绩", "建议从标准模式开始，结果可用于同规格对比", "gauge", Palette.blue, "已就绪", Palette.mintDark))
+                addView(space(5))
+                addView(label("TuiMa · 标准分 $canonical / 1000", 12f, Palette.mintDark, Typeface.BOLD).apply { maxLines = 2 })
             }
 
-            addView(space(18))
+            addView(space(16))
             val actionText = when {
                 state.isRunning -> "查看跑分进度"
-                !hasModel -> "下载标准模型 · 469 MB"
-                latestScore != null -> "再测一次"
-                else -> "开始标准测试"
+                lifecycle.phase == ModelLifecyclePhase.LOADED -> if (latestScore != null) "重新跑分" else "开始标准跑分"
+                lifecycle.phase == ModelLifecyclePhase.DOWNLOADED || lifecycle.phase == ModelLifecyclePhase.LOAD_FAILED -> lifecycle.actionLabel
+                lifecycle.phase == ModelLifecyclePhase.LOADING -> "模型加载中"
+                lifecycle.phase == ModelLifecyclePhase.DOWNLOADING -> "暂停下载"
+                lifecycle.phase == ModelLifecyclePhase.PAUSED -> "继续下载"
+                lifecycle.phase == ModelLifecyclePhase.DOWNLOAD_FAILED -> "重新下载"
+                else -> "下载标准模型 · 469 MB"
             }
             addView(
                 pillButton(actionText, Palette.mintDark, Palette.mint) {
                     when {
                         state.isRunning -> setTab(AppTab.TEST)
-                        !hasModel -> downloadRequiredBenchmarkModel()
-                        else -> {
+                        lifecycle.phase == ModelLifecyclePhase.LOADED -> {
                             selectedBenchmarkProfile = BenchmarkProfile.STANDARD
                             setTab(AppTab.TEST)
                         }
+                        lifecycle.phase == ModelLifecyclePhase.DOWNLOADED || lifecycle.phase == ModelLifecyclePhase.LOAD_FAILED -> {
+                            modelFile?.let(::ensureNotificationPermissionAndLoadModel)
+                        }
+                        lifecycle.phase == ModelLifecyclePhase.DOWNLOADING -> {
+                            val item = modelHubItems.first { it.fileName == requiredBenchmarkModelName() }
+                            pauseModelDownload(downloadTaskKey(item))
+                        }
+                        else -> downloadRequiredBenchmarkModel()
                     }
-                }.apply { contentDescription = actionText },
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54))
+                }.apply {
+                    contentDescription = actionText
+                    isEnabled = lifecycle.actionEnabled || state.isRunning || lifecycle.phase == ModelLifecyclePhase.LOADED
+                    alpha = if (isEnabled) 1f else 0.55f
+                },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52))
             )
         }
     }
 
     private fun buildHomeReadinessCard(): View {
         val model = requiredBenchmarkModel()
+        val lifecycle = requiredBenchmarkModelLifecycle()
         val telemetry = runCatching { AndroidBenchmarkTelemetry(applicationContext).sample() }.getOrNull()
         val thermalReady = telemetry?.thermalStatus?.ordinal?.let { it <= ThermalStatus.LIGHT.ordinal } ?: true
         return surfaceCard(Palette.sky) {
-            addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(readinessMetric("模型", if (model != null) "已就绪" else "需下载", model != null), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginEnd = dp(4) })
-                    addView(readinessMetric("电量", telemetry?.let { "${it.batteryPercent}%" } ?: "检测中", (telemetry?.batteryPercent ?: 30) >= 30), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
-                    addView(readinessMetric("温控", if (thermalReady) "适合" else "需冷却", thermalReady), LinearLayout.LayoutParams(0, dp(76), 1f).apply { marginStart = dp(4) })
-                }
-            )
-            addView(space(12))
-            addView(softInfoBlock("开始后自动校验存储、模型完整性与本机服务，无需手动配置。", Palette.sky, maxLines = 2))
+            addView(label("本机准备度", 14f, Palette.deepInk, Typeface.BOLD))
+            addView(space(10))
+            addView(readinessRow("标准模型", lifecycle.statusLabel, model != null, modelLifecycleAccent(lifecycle.tone)))
+            addView(thinDivider())
+            addView(readinessRow("当前电量", telemetry?.let { "${it.batteryPercent}%" } ?: "检测中", (telemetry?.batteryPercent ?: 30) >= 30))
+            addView(thinDivider())
+            addView(readinessRow("设备温控", if (thermalReady) "适合跑分" else "建议冷却", thermalReady))
+            addView(space(8))
+            addView(label("开始跑分前还会再次校验模型完整性、存储和运行时。", 11.8f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
         }
     }
 
@@ -852,8 +937,7 @@ class MainActivity : Activity() {
                 when (phase) {
                     StandardModelDownloadPhase.DOWNLOADING -> pauseModelDownload(taskKey)
                     StandardModelDownloadPhase.COMPLETE -> {
-                        selectedBenchmarkProfile = BenchmarkProfile.STANDARD
-                        setTab(AppTab.TEST)
+                        requiredBenchmarkModel()?.let(::ensureNotificationPermissionAndLoadModel)
                     }
                     else -> enqueueModelDownload(item)
                 }
@@ -865,15 +949,42 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun readinessRow(title: String, value: String, ready: Boolean): View {
-        val accent = if (ready) Palette.mintDark else Palette.blue
+    private fun readinessRow(title: String, value: String, ready: Boolean, accentOverride: Int? = null): View {
+        val accent = accentOverride ?: if (ready) Palette.mintDark else Palette.blue
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(44)
-            addView(label(if (ready) "✓" else "!", 17f, accent, Typeface.BOLD).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginEnd = dp(8) })
-            addView(label(title, 14f, Palette.ink, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(value, 13f, accent, Typeface.BOLD))
+            minimumHeight = dp(48)
+            setPadding(0, dp(7), 0, dp(7))
+            addView(
+                View(context).apply { background = rounded(accent, Color.TRANSPARENT, 4f) },
+                LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) }
+            )
+            addView(label(title, 13.5f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label(value, 12f, accent, Typeface.BOLD).apply { maxLines = 2; gravity = Gravity.END }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
             contentDescription = "$title，$value"
+        }
+    }
+
+    private fun buildModelLifecycleBanner(lifecycle: ModelLifecycleUiModel, modelName: String): View {
+        val accent = modelLifecycleAccent(lifecycle.tone)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(tint(accent, 0.075f), tint(accent, 0.24f), TuiMaTheme.cardRadiusDp)
+            setPadding(dp(12), dp(11), dp(12), dp(11))
+            addView(
+                LinearLayout(context).apply {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        View(context).apply { background = rounded(accent, Color.TRANSPARENT, 4f) },
+                        LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(9) }
+                    )
+                    addView(label(modelName, 12.8f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    addView(label(lifecycle.statusLabel, 11.5f, accent, Typeface.BOLD).apply { maxLines = 2; gravity = Gravity.END }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
+                }
+            )
+            addView(space(6))
+            addView(label(lifecycle.supportingText, 11.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
+            contentDescription = "$modelName，${lifecycle.statusLabel}。${lifecycle.supportingText}"
         }
     }
 
@@ -950,8 +1061,8 @@ class MainActivity : Activity() {
             } else {
                 rounded(Palette.surface, tint(accent, 0.18f), TuiMaTheme.cardRadiusDp)
             }
-            elevation = dp(1).toFloat()
-            setPadding(dp(16), dp(17), dp(16), dp(15))
+            elevation = 0f
+            setPadding(dp(15), dp(16), dp(15), dp(15))
             block()
         }
     }
@@ -965,21 +1076,29 @@ class MainActivity : Activity() {
         badgeAccent: Int = accent
     ): View {
         return LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(IconBadgeView(context, icon, accent), LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(12) })
+            orientation = LinearLayout.VERTICAL
             addView(
                 LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    addView(label(title, 15.2f, tint(Palette.ink, 0.88f), Typeface.BOLD).apply { maxLines = 1 })
-                    if (caption.isNotBlank()) {
-                        addView(space(3))
-                        addView(label(caption, 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(IconBadgeView(context, icon, accent), LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(10) })
+                    addView(
+                        label(title, 15.2f, tint(Palette.ink, 0.88f), Typeface.BOLD).apply { maxLines = 2 },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    if (badge != null) {
+                        addView(
+                            chip(label(badge, 10.8f, badgeAccent, Typeface.BOLD), tint(badgeAccent, 0.12f), badgeAccent),
+                            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { marginStart = dp(8) }
+                        )
                     }
-                },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                }
             )
-            if (badge != null) {
-                addView(chip(label(badge, 10.8f, tint(badgeAccent, 0.82f), Typeface.BOLD), tint(badgeAccent, 0.12f), badgeAccent))
+            if (caption.isNotBlank()) {
+                addView(space(7))
+                addView(label(caption, 12f, Palette.muted, Typeface.NORMAL).apply {
+                    maxLines = 3
+                    setLineSpacing(dp(2).toFloat(), 1f)
+                })
             }
         }
     }
@@ -1005,31 +1124,23 @@ class MainActivity : Activity() {
         } else {
             "模型 ${formatBytes(modelBytes)}"
         }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(Palette.surface, tint(Palette.mint, 0.18f), 18f)
-            elevation = dp(2).toFloat()
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            addView(IconBadgeView(context, "chip", Palette.mint), LinearLayout.LayoutParams(dp(48), dp(48)))
+        val localModels = availableGgufModels()
+        val activeName = localModels.firstOrNull { it.absolutePath == activeModelPath }?.nameWithoutExtension
+        return surfaceCard(Palette.mint) {
+            addView(cardHeader("本机模型库", storageLine, "chip", Palette.mint, "${localModels.size} 个"))
+            addView(space(12))
+            addView(readinessRow("运行时", activeName?.let { "已加载 ${displayModelName(it)}" } ?: "暂无已加载模型", activeName != null))
+            addView(thinDivider())
+            addView(readinessRow("本地文件", if (localModels.isEmpty()) "未下载" else "已下载 ${localModels.size} 个", localModels.isNotEmpty()))
+            addView(space(10))
             addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding(dp(14), 0, dp(12), 0)
-                    addView(label("模型空间", 14f, tint(Palette.ink, 0.86f), Typeface.BOLD))
-                    addView(space(4))
-                    addView(label(storageLine, 13f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
-                },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            )
-            addView(
-                pillButton("位置", Palette.mintDark, Palette.mint) {
+                chipButton("复制模型目录", false) {
                     val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("TuiMa model directory", externalModelDir().absolutePath))
                     Toast.makeText(this@MainActivity, "模型目录已复制", Toast.LENGTH_SHORT).show()
                     updateStatus("模型目录已复制")
                 },
-                LinearLayout.LayoutParams(dp(118), dp(44))
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             )
         }
     }
@@ -1174,44 +1285,28 @@ class MainActivity : Activity() {
     private fun buildModelScopeResultRow(entry: ModelScopeCatalogEntry, compact: Boolean = false): View {
         val localFile = File(externalModelDir(), entry.fileName)
         val downloaded = localFile.exists() && localFile.length() > 1024 * 1024
-        val loadedInRuntime = downloaded && activeModelPath == localFile.absolutePath
         val modelHubItem = modelScopeItem(entry)
         val taskKey = downloadTaskKey(modelHubItem)
         val downloadState = providerStateByProvider[taskKey]
+        val lifecycle = modelLifecycle(
+            file = localFile.takeIf { downloaded },
+            expectedFileName = entry.fileName,
+            downloadState = downloadState,
+        )
+        val loadedInRuntime = lifecycle.phase == ModelLifecyclePhase.LOADED
         val profile = probeDeviceProfile()
         val estimatedMemoryMb = estimateMobileMemoryMb(entry)
         val fit = fitLabel(entry, profile)
         val reason = entry.recommendationReason.ifBlank {
             "$fit · 预计内存 ${estimatedMemoryMb}MB · ${recommendationReasonFor(entry, profile)}"
         }
-        val accent = when {
-            loadedInRuntime -> Palette.blue
-            downloaded -> Palette.mintDark
-            mobileFitScore(entry, profile) >= 90 -> Palette.mint
-            entry.quantization.startsWith("Q4", ignoreCase = true) -> Palette.mint
-            entry.quantization.startsWith("Q2", ignoreCase = true) -> Palette.sky
-            else -> Palette.lavender
-        }
-        val badge = when {
-            loadedInRuntime -> "已加载"
-            downloaded -> "本地"
-            downloadState?.status == DownloadState.DOWNLOADING -> "下载中"
-            downloadState?.status == DownloadState.PAUSED -> "已暂停"
-            downloadState?.status == DownloadState.FAILED -> "重试"
-            else -> entry.quantization
-        }
-        val primaryAction = when {
-            loadedInRuntime -> "已加载"
-            downloaded -> "加载"
-            downloadState?.status == DownloadState.DOWNLOADING -> "暂停"
-            downloadState?.status == DownloadState.PAUSED -> "继续"
-            downloadState?.status == DownloadState.FAILED || downloadState?.status == DownloadState.CANCELLED -> "重试"
-            else -> "下载"
-        }
+        val accent = modelLifecycleAccent(lifecycle.tone)
+        val badge = lifecycle.statusLabel
+        val primaryAction = lifecycle.actionLabel
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(tint(accent, 0.055f), tint(accent, 0.16f), 14f)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            background = rounded(tint(accent, 0.055f), tint(accent, 0.18f), TuiMaTheme.cardRadiusDp)
+            setPadding(dp(13), dp(13), dp(13), dp(13))
             addView(
                 miniListCard(
                     title = entry.displayTitle,
@@ -1223,7 +1318,7 @@ class MainActivity : Activity() {
                 )
             )
             addView(space(8))
-            addView(label(entry.fileName, 12f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 })
+            addView(label(entry.fileName, 12f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 })
             addView(space(3))
             addView(
                 label(
@@ -1244,6 +1339,8 @@ class MainActivity : Activity() {
                     ).apply { maxLines = 2 }
                 )
             }
+            addView(space(7))
+            addView(label(lifecycle.supportingText, 11.8f, accent, Typeface.BOLD).apply { maxLines = 2 })
             addView(space(10))
             addView(
                 LinearLayout(context).apply {
@@ -1257,24 +1354,22 @@ class MainActivity : Activity() {
                             val currentFile = File(externalModelDir(), entry.fileName)
                             val currentState = providerStateByProvider[taskKey]
                             val currentDownloaded = currentFile.exists() && currentFile.length() > 1024 * 1024
-                            val currentLoaded = currentDownloaded && activeModelPath == currentFile.absolutePath
-                            when {
-                                currentLoaded -> {
-                                    updateStatus("模型已加载：${currentFile.name}")
-                                    Toast.makeText(this@MainActivity, "模型已加载", Toast.LENGTH_SHORT).show()
-                                }
-                                currentDownloaded -> {
-                                    ensureNotificationPermissionAndLoadModel(currentFile)
-                                }
-                                currentState?.status == DownloadState.DOWNLOADING -> {
-                                    pauseModelDownload(taskKey)
-                                }
-                                else -> {
-                                    enqueueModelDownload(modelHubItem)
-                                }
+                            val currentLifecycle = modelLifecycle(
+                                file = currentFile.takeIf { currentDownloaded },
+                                expectedFileName = entry.fileName,
+                                downloadState = currentState,
+                            )
+                            when (currentLifecycle.phase) {
+                                ModelLifecyclePhase.LOADED, ModelLifecyclePhase.LOADING -> Unit
+                                ModelLifecyclePhase.DOWNLOADED, ModelLifecyclePhase.LOAD_FAILED -> ensureNotificationPermissionAndLoadModel(currentFile)
+                                ModelLifecyclePhase.DOWNLOADING -> pauseModelDownload(taskKey)
+                                else -> enqueueModelDownload(modelHubItem)
                             }
+                        }.apply {
+                            isEnabled = lifecycle.actionEnabled
+                            alpha = if (lifecycle.actionEnabled) 1f else 0.55f
                         },
-                        LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(8) }
+                        LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(8) }
                     )
                     addView(
                         chipButton("详情", false) {
@@ -1811,7 +1906,7 @@ class MainActivity : Activity() {
                             BenchmarkProfile.entries.forEachIndexed { index, profile ->
                                 addView(
                                     benchmarkProfileOption(profile, activeProfile == profile, state.isRunning),
-                                    LinearLayout.LayoutParams(0, dp(74), 1f).apply {
+                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                                         if (index > 0) marginStart = dp(4)
                                         if (index < BenchmarkProfile.entries.lastIndex) marginEnd = dp(4)
                                     }
@@ -1819,12 +1914,21 @@ class MainActivity : Activity() {
                             }
                         }
                     )
+                    addView(space(10))
+                    val modeDetail = when (activeProfile) {
+                        BenchmarkProfile.QUICK -> "快速：先看大致性能，不参与榜单。"
+                        BenchmarkProfile.STANDARD -> "标准：统一规格重复 3 次，可生成榜单成绩。"
+                        BenchmarkProfile.STRESS -> "压力：持续运行，观察温度与性能衰减。"
+                    }
+                    addView(label(modeDetail, 11.8f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
                 }
             )
             addView(space(12))
             addView(
                 surfaceCard(Palette.lavender, gradient = true) {
                     addView(cardHeader("本机 AI 性能测试", "统一模型、统一提示词、评分算法固定", "play", Palette.lavender, "v2"))
+                    addView(space(12))
+                    addView(buildModelLifecycleBanner(requiredBenchmarkModelLifecycle(), "Qwen2.5 0.5B 标准模型"))
                     addView(space(14))
                     addView(buildBenchmarkStatePanel(state))
                     addView(space(14))
@@ -1839,7 +1943,7 @@ class MainActivity : Activity() {
                                     gravity = Gravity.CENTER
                                     contentDescription = "跑分进行中，请保持应用在前台"
                                 },
-                                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48))
+                                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                             )
                             if (state !is BenchmarkUiState.Cancelling) {
                                 addView(space(8))
@@ -1873,7 +1977,8 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            minimumHeight = dp(48)
+            minimumHeight = dp(64)
+            setPadding(dp(5), dp(10), dp(5), dp(10))
             background = ripple(
                 rounded(if (selected) Palette.mintPale else Palette.surface, tint(accent, 0.30f), 14f),
                 accent
@@ -1887,9 +1992,9 @@ class MainActivity : Activity() {
                 selectedBenchmarkProfile = profile
                 renderCurrentTab()
             }
-            addView(label(benchmarkProfileName(profile).removeSuffix("模式"), 13.5f, accent, Typeface.BOLD))
+            addView(autoSizeSingleLineLabel(benchmarkProfileName(profile).removeSuffix("模式"), 13.5f, 11f, accent, Typeface.BOLD))
             addView(space(4))
-            addView(label(caption, 10.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 1 })
+            addView(label(caption, 10.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2; gravity = Gravity.CENTER })
         }
     }
 
@@ -1945,9 +2050,9 @@ class MainActivity : Activity() {
                 addView(
                     LinearLayout(context).apply {
                         orientation = LinearLayout.HORIZONTAL
-                        addView(liveMetricTile("电量", benchmarkLiveSnapshot.batteryPercent?.let { "$it%" } ?: "--"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(4) })
-                        addView(liveMetricTile("温度", benchmarkLiveSnapshot.temperatureCelsius?.let { "${"%.1f".format(Locale.US, it)}°C" } ?: "--"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
-                        addView(liveMetricTile("实时速度", benchmarkLiveSnapshot.decodeTokensPerSecond?.let { "${"%.1f".format(Locale.US, it)} tok/s" } ?: "--"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4) })
+                        addView(liveMetricTile("电量", benchmarkLiveSnapshot.batteryPercent?.let { "$it%" } ?: "--"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+                        addView(liveMetricTile("温度", benchmarkLiveSnapshot.temperatureCelsius?.let { "${"%.1f".format(Locale.US, it)}°C" } ?: "--"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                        addView(liveMetricTile("实时速度", benchmarkLiveSnapshot.decodeTokensPerSecond?.let { "${"%.1f".format(Locale.US, it)} tok/s" } ?: "--"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
                     }
                 )
             }
@@ -2004,6 +2109,8 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            minimumHeight = dp(64)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
             background = rounded(tint(Palette.surface, 0.76f), tint(Palette.sky, 0.18f), 11f)
             addView(label(value, 11.5f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 })
             addView(space(3))
@@ -2026,17 +2133,14 @@ class MainActivity : Activity() {
 
     private fun buildBenchmarkRequirementsCard(): View {
         return surfaceCard(Palette.sky) {
-            addView(label("测试要求", 13f, Palette.muted, Typeface.BOLD))
+            addView(label("开始前检查", 14f, Palette.deepInk, Typeface.BOLD))
             addView(space(10))
-            addView(
-                LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    addView(requirementMetric("电量", "≥ 30%"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginEnd = dp(4) })
-                    addView(requirementMetric("温控", "保持凉爽"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
-                    addView(requirementMetric("运行", "保持前台"), LinearLayout.LayoutParams(0, dp(62), 1f).apply { marginStart = dp(4) })
-                }
-            )
-            addView(space(10))
+            addView(readinessRow("电量", "至少 30%", true))
+            addView(thinDivider())
+            addView(readinessRow("温控", "保持凉爽", true))
+            addView(thinDivider())
+            addView(readinessRow("运行", "应用保持前台", true))
+            addView(space(8))
             addView(label("标准模式具备榜单资格；快速模式用于预览，压力模式观察持续性能。", 12f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
         }
     }
@@ -2331,7 +2435,9 @@ class MainActivity : Activity() {
                     gravity = Gravity.CENTER_HORIZONTAL
                     addView(label("本次测试结果", 11f, Palette.muted, Typeface.BOLD).apply { letterSpacing = 0.04f })
                     addView(space(9))
-                    addView(label(formatHeadlineScore(snapshot.headlineScore), 50f, Palette.blue, Typeface.BOLD).apply { gravity = Gravity.CENTER })
+                    addView(autoSizeSingleLineLabel(formatHeadlineScore(snapshot.headlineScore), 48f, 28f, Palette.blue, Typeface.BOLD).apply {
+                        gravity = Gravity.CENTER
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                     addView(label("TuiMa", 16f, Palette.deepInk, Typeface.BOLD).apply { gravity = Gravity.CENTER })
                     addView(space(7))
                     addView(label("标准分 ${snapshot.canonicalScore} / 1000", 14f, Palette.mintDark, Typeface.BOLD).apply { gravity = Gravity.CENTER })
@@ -2347,12 +2453,12 @@ class MainActivity : Activity() {
                     addView(space(8))
                     addView(label(insight.modeHint, 10.8f, Palette.muted, Typeface.BOLD).apply {
                         gravity = Gravity.CENTER
-                        maxLines = 1
+                        maxLines = 2
                     })
                     addView(space(8))
                     addView(
-                        chip(label(snapshot.executionLabel, 10.5f, Palette.blue, Typeface.BOLD), Palette.blueWash, Palette.sky),
-                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30))
+                        chip(label(snapshot.executionLabel, 10.5f, Palette.blue, Typeface.BOLD).apply { maxLines = 2 }, Palette.blueWash, Palette.sky),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                     )
                 },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -2371,9 +2477,9 @@ class MainActivity : Activity() {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.HORIZONTAL
-                    addView(resultMetricTile("生成速度", "${"%.2f".format(Locale.US, snapshot.decodeTokensPerSecond)} tok/s"), LinearLayout.LayoutParams(0, dp(72), 1f).apply { marginEnd = dp(5) })
-                    addView(resultMetricTile("首字响应", "${snapshot.firstTokenMs} ms"), LinearLayout.LayoutParams(0, dp(72), 1f).apply { marginStart = dp(5); marginEnd = dp(5) })
-                    addView(resultMetricTile("峰值内存", "${snapshot.memoryPeakMb} MB"), LinearLayout.LayoutParams(0, dp(72), 1f).apply { marginStart = dp(5) })
+                    addView(resultMetricTile("生成速度", "${"%.2f".format(Locale.US, snapshot.decodeTokensPerSecond)} tok/s"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+                    addView(resultMetricTile("首字响应", "${snapshot.firstTokenMs} ms"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    addView(resultMetricTile("峰值内存", "${snapshot.memoryPeakMb} MB"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
                 }
             )
             addView(space(10))
@@ -2401,13 +2507,9 @@ class MainActivity : Activity() {
             addView(space(7))
             addView(label(insight.summary, 13.5f, Palette.ink, Typeface.NORMAL).apply { maxLines = 2 })
             addView(space(10))
-            addView(
-                LinearLayout(context).apply {
-                    addView(chip(label("强项：${insight.strongest.joinToString("、")}", 11.5f, Palette.mintDark, Typeface.BOLD), Palette.mintPale, Palette.mint))
-                    addView(space(8), LinearLayout.LayoutParams(dp(8), 1))
-                    addView(chip(label("瓶颈：${insight.bottleneck}", 11.5f, Palette.blue, Typeface.BOLD), Palette.lavenderWash, Palette.lavender))
-                }
-            )
+            addView(readinessRow("强项", insight.strongest.joinToString("、"), true))
+            addView(thinDivider())
+            addView(readinessRow("主要瓶颈", insight.bottleneck, false))
             addView(space(10))
             addView(label(insight.recommendation, 12.5f, Palette.muted, Typeface.NORMAL).apply {
                 maxLines = 3
@@ -2436,8 +2538,6 @@ class MainActivity : Activity() {
             setPadding(dp(13), dp(12), dp(13), dp(12))
             addView(label(headline, 14f, Palette.deepInk, Typeface.BOLD))
             addView(space(9))
-            addView(comparisonHeaderRow())
-            addView(space(6))
             addView(comparisonRow(
                 "标准分",
                 comparison.current.canonicalScore.toString(),
@@ -2494,11 +2594,27 @@ class MainActivity : Activity() {
 
     private fun comparisonRow(labelText: String, current: String, previous: String, delta: String, deltaColor: Int): View {
         return LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(label(labelText, 11.2f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.15f))
-            addView(label(current, 10.8f, Palette.ink, Typeface.BOLD).apply { gravity = Gravity.END; maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(previous, 10.8f, Palette.muted, Typeface.NORMAL).apply { gravity = Gravity.END; maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(delta, 10.8f, deltaColor, Typeface.BOLD).apply { gravity = Gravity.END; maxLines = 1 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            orientation = LinearLayout.VERTICAL
+            background = rounded(tint(Palette.surface, 0.52f), tint(Palette.lavender, 0.14f), TuiMaTheme.cardRadiusDp)
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            addView(label(labelText, 11.5f, Palette.ink, Typeface.BOLD))
+            addView(space(7))
+            addView(
+                LinearLayout(context).apply {
+                    addView(comparisonValueCell("本次", current, Palette.ink), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+                    addView(comparisonValueCell("上次", previous, Palette.muted), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+                    addView(comparisonValueCell("变化", delta, deltaColor), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
+                }
+            )
+        }
+    }
+
+    private fun comparisonValueCell(caption: String, value: String, color: Int): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(autoSizeSingleLineLabel(value, 11f, 8f, color, Typeface.BOLD).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(space(3))
+            addView(label(caption, 9.5f, Palette.muted, Typeface.NORMAL).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
 
@@ -2539,8 +2655,10 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            minimumHeight = dp(72)
+            setPadding(dp(5), dp(9), dp(5), dp(9))
             background = rounded(tint(Palette.sky, 0.08f), tint(Palette.sky, 0.20f), 7f)
-            addView(label(value, 12.5f, Palette.ink, Typeface.BOLD).apply { maxLines = 1 })
+            addView(autoSizeSingleLineLabel(value, 12.5f, 9f, Palette.ink, Typeface.BOLD).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(space(3))
             addView(label(title, 10.5f, Palette.muted, Typeface.NORMAL))
             contentDescription = "$title，$value"
@@ -2783,8 +2901,8 @@ class MainActivity : Activity() {
     private fun buildModelHubStatusRow(item: ModelHubItem): View {
         val taskKey = downloadTaskKey(item)
         val titleText = label("${item.provider} · ${item.shortName}", 13f, Palette.ink, Typeface.BOLD)
-        val statusText = label("状态：空闲", 12f, Palette.muted, Typeface.NORMAL)
-        val messageText = label("可下载", 12f, Palette.muted, Typeface.NORMAL)
+        val statusText = label("未下载", 12f, Palette.muted, Typeface.BOLD)
+        val messageText = label("模型文件尚未保存在本机", 12f, Palette.muted, Typeface.NORMAL)
         val progressText = label("进度：0B / 未知 (0%)", 11f, Palette.muted, Typeface.NORMAL)
         val cancelButton = (pillButton("暂停", Palette.sky, Palette.blue) {
             handleDownloadControl(taskKey)
@@ -2952,7 +3070,7 @@ class MainActivity : Activity() {
             addView(
                 LinearLayout(context).apply {
                     orientation = LinearLayout.VERTICAL
-                    addView(label(title, 11.7f, tint(Palette.ink, 0.64f), Typeface.BOLD).apply { maxLines = 1 })
+                    addView(label(title, 12.2f, Palette.ink, Typeface.BOLD).apply { maxLines = 2 })
                     addView(space(4))
                     addView(label(subtitle, 10.5f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
                 },
@@ -2970,8 +3088,8 @@ class MainActivity : Activity() {
     private fun actionRow(left: View, right: View): View {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(left, LinearLayout.LayoutParams(0, dp(94), 1f).apply { marginEnd = dp(6) })
-            addView(right, LinearLayout.LayoutParams(0, dp(94), 1f).apply { marginStart = dp(6) })
+            addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(5) })
+            addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(5) })
         }
     }
 
@@ -2985,6 +3103,7 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(92)
             background = ripple(rounded(tint(accent, 0.075f), tint(accent, 0.18f), 14f), accent)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             isClickable = true
@@ -3004,12 +3123,16 @@ class MainActivity : Activity() {
             addView(cardHeader("最近模型", "导入后可直接加载测试", "cube", Palette.lavender, "GGUF"))
             addView(space(12))
             if (model != null) {
-                addView(modelRow(model.nameWithoutExtension, "${formatBytes(model.length())} · GGUF", "可用", Palette.mint))
+                val lifecycle = modelLifecycle(model, model.name, null)
+                addView(modelRow(model.nameWithoutExtension, "${formatBytes(model.length())} · ${lifecycle.supportingText}", lifecycle.statusLabel, modelLifecycleAccent(lifecycle.tone)))
             } else {
-                addView(modelRow("暂无本地模型", "从模型页下载，或从文件导入 GGUF", "空", Palette.sky))
+                addView(modelRow("暂无本地模型", "从模型页下载，或从文件导入 GGUF", "未下载", Palette.muted))
             }
             addView(space(8))
-            addView(modelRow("Qwen2.5 0.5B", "推荐的小体积测试模型", "推荐", Palette.lavender))
+            if (model?.name != requiredBenchmarkModelName()) {
+                val standardLifecycle = requiredBenchmarkModelLifecycle()
+                addView(modelRow("Qwen2.5 0.5B", standardLifecycle.supportingText, standardLifecycle.statusLabel, modelLifecycleAccent(standardLifecycle.tone)))
+            }
         }
     }
 
@@ -3350,60 +3473,34 @@ class MainActivity : Activity() {
         val bytesTotalText = if (state.totalBytes > 0) formatBytes(state.totalBytes) else "未知"
         val percentText = if (state.totalBytes > 0L) "${state.percent}%" else "未知"
         titleView?.text = "${state.item.provider} · ${state.item.shortName}"
-
-        when (state.status) {
-            DownloadState.IDLE -> {
-                statusView.text = "状态：空闲"
-                messageView.text = "${state.item.provider} 可下载"
-                cancelView?.visibility = View.GONE
-                tile?.alpha = 1f
-            }
-            DownloadState.DOWNLOADING -> {
-                statusView.text = "状态：进行中"
-                messageView.text = "${state.item.shortName} 下载中"
-                cancelView?.text = "暂停"
-                cancelView?.visibility = View.VISIBLE
-                tile?.alpha = 0.6f
-            }
-            DownloadState.PAUSED -> {
-                statusView.text = "状态：已暂停"
-                messageView.text = state.failureMessage ?: "已暂停，可继续"
-                cancelView?.text = "继续"
-                cancelView?.visibility = View.VISIBLE
-                tile?.alpha = 1f
-            }
-            DownloadState.SUCCESS -> {
-                statusView.text = "状态：成功"
-                messageView.text = "${state.item.shortName} 下载完成，可直接加载"
-                cancelView?.visibility = View.GONE
-                tile?.alpha = 1f
-            }
-            DownloadState.FAILED -> {
-                statusView.text = "状态：失败"
-                messageView.text = state.failureMessage ?: "${state.item.shortName} 下载失败"
-                cancelView?.text = "重试"
-                cancelView?.visibility = View.VISIBLE
-                tile?.alpha = 1f
-            }
-            DownloadState.CANCELLED -> {
-                statusView.text = "状态：已取消"
-                messageView.text = "已取消，可重试"
-                cancelView?.text = "重试"
-                cancelView?.visibility = View.VISIBLE
-                tile?.alpha = 1f
-            }
+        val localFile = availableGgufModels().firstOrNull { it.name.equals(state.item.fileName, ignoreCase = true) }
+        val lifecycle = modelLifecycle(localFile, state.item.fileName, state)
+        val accent = modelLifecycleAccent(lifecycle.tone)
+        statusView.text = lifecycle.statusLabel
+        statusView.setTextColor(accent)
+        messageView.text = when {
+            lifecycle.phase == ModelLifecyclePhase.LOAD_FAILED && !modelLoadFailureMessage.isNullOrBlank() -> modelLoadFailureMessage
+            !state.failureMessage.isNullOrBlank() && lifecycle.phase in setOf(ModelLifecyclePhase.DOWNLOAD_FAILED, ModelLifecyclePhase.PAUSED) -> state.failureMessage
+            else -> lifecycle.supportingText
         }
-        progressView.text = "进度：${formatBytes(state.bytesDownloaded)} / $bytesTotalText ($percentText)"
-        progressView.visibility = View.VISIBLE
+        cancelView?.text = lifecycle.actionLabel
+        cancelView?.visibility = if (lifecycle.actionEnabled) View.VISIBLE else View.GONE
+        tile?.alpha = if (lifecycle.phase == ModelLifecyclePhase.DOWNLOADING) 0.6f else 1f
+        progressView.text = "进度 ${formatBytes(state.bytesDownloaded)} / $bytesTotalText · $percentText"
+        progressView.visibility = if (lifecycle.phase in setOf(
+                ModelLifecyclePhase.DOWNLOADING,
+                ModelLifecyclePhase.PAUSED,
+                ModelLifecyclePhase.DOWNLOAD_FAILED,
+            )) View.VISIBLE else View.GONE
     }
 
     private fun handleDownloadControl(taskKey: String) {
         val state = providerStateByProvider[taskKey] ?: return
-        when (state.status) {
-            DownloadState.DOWNLOADING -> pauseModelDownload(taskKey)
-            DownloadState.PAUSED,
-            DownloadState.FAILED,
-            DownloadState.CANCELLED -> enqueueModelDownload(state.item)
+        val localFile = availableGgufModels().firstOrNull { it.name.equals(state.item.fileName, ignoreCase = true) }
+        when (modelLifecycle(localFile, state.item.fileName, state).phase) {
+            ModelLifecyclePhase.LOADED, ModelLifecyclePhase.LOADING -> Unit
+            ModelLifecyclePhase.DOWNLOADED, ModelLifecyclePhase.LOAD_FAILED -> localFile?.let(::ensureNotificationPermissionAndLoadModel)
+            ModelLifecyclePhase.DOWNLOADING -> pauseModelDownload(taskKey)
             else -> enqueueModelDownload(state.item)
         }
     }
@@ -3659,14 +3756,14 @@ class MainActivity : Activity() {
     private fun buildBottomNavigation(): View {
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER
-            background = rounded(tint(Palette.surface, 0.97f), tint(Palette.sky, 0.18f), 16f)
-            elevation = dp(4).toFloat()
-            setPadding(dp(6), dp(4), dp(6), dp(4))
-            addView(navItem("首页", "home", AppTab.HOME), LinearLayout.LayoutParams(0, dp(58), 1f))
-            addView(navItem("跑分", "play", AppTab.TEST), LinearLayout.LayoutParams(0, dp(58), 1f))
-            addView(navItem("结果", "gauge", AppTab.RESULTS), LinearLayout.LayoutParams(0, dp(58), 1f))
-            addView(navItem("模型", "cube", AppTab.MODELS), LinearLayout.LayoutParams(0, dp(58), 1f))
-            addView(navItem("我的", "person", AppTab.SETTINGS), LinearLayout.LayoutParams(0, dp(58), 1f))
+            background = rounded(Palette.surface, tint(Palette.sky, 0.20f), TuiMaTheme.cardRadiusDp)
+            elevation = dp(3).toFloat()
+            setPadding(dp(4), dp(3), dp(4), dp(3))
+            addView(navItem("首页", "home", AppTab.HOME), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(navItem("跑分", "play", AppTab.TEST), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(navItem("结果", "gauge", AppTab.RESULTS), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(navItem("模型", "cube", AppTab.MODELS), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(navItem("我的", "person", AppTab.SETTINGS), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
     }
 
@@ -3678,6 +3775,8 @@ class MainActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
+            minimumHeight = dp(62)
+            setPadding(dp(2), dp(4), dp(2), dp(4))
             background = ripple(
                 if (selected) rounded(tint(Palette.mint, 0.11f), Color.TRANSPARENT, 11f) else rounded(Color.TRANSPARENT, Color.TRANSPARENT, 11f),
                 accent
@@ -3719,17 +3818,13 @@ class MainActivity : Activity() {
 
     private fun sectionTitle(title: String, subtitle: String): View {
         return LinearLayout(this).apply {
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             minimumHeight = dp(34)
-            addView(
-                View(context).apply { background = rounded(Palette.mintDark, Color.TRANSPARENT, 2f) },
-                LinearLayout.LayoutParams(dp(3), dp(22)).apply { marginEnd = dp(9) }
-            )
-            addView(label(title, 15.5f, Palette.deepInk, Typeface.BOLD), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(subtitle, 11.2f, Palette.muted, Typeface.NORMAL).apply {
-                maxLines = 1
-                gravity = Gravity.END
-            })
+            addView(label(title, 15.5f, Palette.deepInk, Typeface.BOLD))
+            if (subtitle.isNotBlank()) {
+                addView(space(3))
+                addView(label(subtitle, 11.2f, Palette.muted, Typeface.NORMAL).apply { maxLines = 2 })
+            }
             contentDescription = "$title，$subtitle"
         }
     }
@@ -3740,11 +3835,21 @@ class MainActivity : Activity() {
             this.text = text
             gravity = Gravity.CENTER
             textSize = 14f
+            minimumHeight = dp(TuiMaTheme.minimumTouchTargetDp)
+            maxLines = 2
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             setTextColor(if (selected) Palette.mintDark else Palette.muted)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = ripple(
                 rounded(if (selected) Palette.mintPale else Palette.surface, tint(accent, 0.35f), 18f),
                 accent
+            )
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this,
+                11,
+                14,
+                1,
+                TypedValue.COMPLEX_UNIT_SP,
             )
             isClickable = true
             isFocusable = true
@@ -4041,6 +4146,74 @@ class MainActivity : Activity() {
         return availableGgufModels().firstOrNull { it.name == requiredName }
     }
 
+    private fun requiredBenchmarkModelLifecycle(): ModelLifecycleUiModel {
+        val file = requiredBenchmarkModel()
+        val item = modelHubItems.firstOrNull { it.fileName == requiredBenchmarkModelName() }
+        return modelLifecycle(
+            file = file,
+            expectedFileName = requiredBenchmarkModelName(),
+            downloadState = item?.let { providerStateByProvider[downloadTaskKey(it)] },
+        )
+    }
+
+    private fun modelLifecycle(
+        file: File?,
+        expectedFileName: String,
+        downloadState: ModelDownloadState?,
+    ): ModelLifecycleUiModel {
+        val downloadedFile = file?.takeIf { it.isFile && it.length() > 1024 * 1024 }
+            ?: availableGgufModels().firstOrNull { it.name.equals(expectedFileName, ignoreCase = true) }
+        val path = downloadedFile?.absolutePath
+        return ModelLifecyclePresenter.present(
+            downloaded = downloadedFile != null,
+            active = path != null && activeModelPath == path,
+            loading = path != null && pendingModelPath == path,
+            downloadStatus = downloadState?.status?.name,
+            loadFailed = path != null && modelLoadFailurePath == path,
+            progressPercent = downloadState?.percent ?: 0,
+        )
+    }
+
+    private fun modelLifecycleAccent(tone: ModelLifecycleTone): Int = when (tone) {
+        ModelLifecycleTone.ACTIVE -> Palette.mint
+        ModelLifecycleTone.READY -> Palette.sky
+        ModelLifecycleTone.PROGRESS -> Palette.blue
+        ModelLifecycleTone.WARNING -> Palette.amber
+        ModelLifecycleTone.ERROR -> Palette.danger
+        ModelLifecycleTone.NEUTRAL -> Palette.muted
+    }
+
+    private fun refreshRuntimeModelState() {
+        callLocalApi(
+            path = "/health",
+            method = "GET",
+            body = null,
+            retryCount = 1,
+            onResult = { status, body, _ ->
+                if (status !in 200..299) return@callLocalApi
+                val health = runCatching { JSONObject(body) }.getOrNull() ?: return@callLocalApi
+                val loaded = health.optBoolean("model_loaded", false)
+                val activeId = health.optString("active_model").takeIf { it.isNotBlank() && it != "null" }
+                val resolvedPath = if (loaded && activeId != null) {
+                    availableGgufModels().firstOrNull {
+                        it.nameWithoutExtension.equals(activeId, ignoreCase = true) ||
+                            it.absolutePath.equals(activeId, ignoreCase = true)
+                    }?.absolutePath
+                } else {
+                    null
+                }
+                activeModelPath = resolvedPath
+                if (resolvedPath != null) {
+                    pendingModelPath = null
+                    modelLoadFailurePath = null
+                    modelLoadFailureMessage = null
+                }
+                if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) renderCurrentTab()
+            },
+            onError = { /* A stopped local service is a valid idle state. */ },
+        )
+    }
+
     private fun syncBenchmarkReadiness(render: Boolean = true) {
         val missingModel = requiredBenchmarkModel().let { if (it == null) requiredBenchmarkModelName() else null }
         dispatchBenchmarkUi(BenchmarkUiEvent.ReadinessChanged(missingModel), render)
@@ -4188,6 +4361,9 @@ class MainActivity : Activity() {
                         throw BenchmarkRunException(BenchmarkFailureKind.MODEL_INVALID, "标准模型加载失败")
                     }
                     activeModelPath = model.absolutePath
+                    pendingModelPath = null
+                    modelLoadFailurePath = null
+                    modelLoadFailureMessage = null
                     val loadMs = loadJson.optLong("load_time_ms", loadResult.elapsedMs)
 
                     val chatBody = JSONObject().apply {
@@ -4874,7 +5050,9 @@ class MainActivity : Activity() {
     }
 
     private fun startServiceWithModel(model: File) {
-        activeModelPath = model.absolutePath
+        pendingModelPath = model.absolutePath
+        modelLoadFailurePath = null
+        modelLoadFailureMessage = null
         val intent = Intent(this, MobileCoreService::class.java).apply {
             putExtra("modelPath", model.absolutePath)
         }
@@ -4884,7 +5062,7 @@ class MainActivity : Activity() {
             startService(intent)
         }
         updateStatus("正在加载模型：${model.name}")
-        if (currentTab == AppTab.MODELS) renderCurrentTab()
+        if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) renderCurrentTab()
     }
 
     private fun findPreferredGguf(): File? {
@@ -5061,10 +5239,11 @@ class MainActivity : Activity() {
                 message.contains("正在下载") || message.startsWith("Downloading") -> "正在下载模型"
                 message.contains("已下载") || message.startsWith("Downloaded") -> "模型已下载"
                 message.contains("模型已加载") -> "模型已加载"
+                message.contains("加载失败") -> "加载失败"
                 message.contains("服务已停止") -> "服务已停止"
                 message.contains("未找到 GGUF") -> "需要模型"
                 message.contains("失败") -> "需要处理"
-                else -> "本机模型就绪"
+                else -> "本机服务"
             }
         }
     }
@@ -5076,6 +5255,27 @@ class MainActivity : Activity() {
             setTextColor(color)
             typeface = Typeface.create(Typeface.DEFAULT, style)
             includeFontPadding = false
+            setLineSpacing(dp(1).toFloat(), 1f)
+        }
+    }
+
+    private fun autoSizeSingleLineLabel(
+        text: String,
+        maximumSp: Float,
+        minimumSp: Float,
+        color: Int,
+        style: Int,
+    ): TextView {
+        return label(text, maximumSp, color, style).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this,
+                minimumSp.toInt(),
+                maximumSp.toInt(),
+                1,
+                TypedValue.COMPLEX_UNIT_SP,
+            )
         }
     }
 
@@ -5099,9 +5299,19 @@ class MainActivity : Activity() {
             this.text = text
             gravity = Gravity.CENTER
             textSize = 14f
+            minimumHeight = dp(TuiMaTheme.minimumTouchTargetDp)
+            maxLines = 2
+            setPadding(dp(14), dp(8), dp(14), dp(8))
             setTextColor(Color.WHITE)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = ripple(roundedGradient(intArrayOf(startColor, endColor), 24f), endColor)
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this,
+                12,
+                14,
+                1,
+                TypedValue.COMPLEX_UNIT_SP,
+            )
             isClickable = true
             isFocusable = true
             setOnClickListener {
@@ -5121,6 +5331,8 @@ class MainActivity : Activity() {
             )
         )
     }
+
+    private fun pageGutterDp(): Int = if (resources.configuration.screenWidthDp < 380) 14 else 18
 
     private fun mixColor(base: Int, overlay: Int, amount: Float): Int {
         val ratio = amount.coerceIn(0f, 1f)

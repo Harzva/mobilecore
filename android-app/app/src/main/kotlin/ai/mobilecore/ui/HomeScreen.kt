@@ -38,14 +38,14 @@ object HomeScreenPresenter {
             StandardModelDownloadPhase.DOWNLOADING -> "正在下载标准模型"
             StandardModelDownloadPhase.PAUSED -> "标准模型下载已暂停"
             StandardModelDownloadPhase.FAILED -> "标准模型下载失败"
-            StandardModelDownloadPhase.COMPLETE -> "标准模型已就绪"
+            StandardModelDownloadPhase.COMPLETE -> "标准模型已下载"
         }
         val action = when (phase) {
             StandardModelDownloadPhase.IDLE -> "开始下载"
             StandardModelDownloadPhase.DOWNLOADING -> "暂停下载"
             StandardModelDownloadPhase.PAUSED -> "继续下载"
             StandardModelDownloadPhase.FAILED -> "重新下载"
-            StandardModelDownloadPhase.COMPLETE -> "开始标准测试"
+            StandardModelDownloadPhase.COMPLETE -> "加载模型"
         }
         return StandardModelDownloadUiModel(
             phase = phase,
@@ -56,7 +56,7 @@ object HomeScreenPresenter {
                 StandardModelDownloadPhase.DOWNLOADING -> "预计剩余 ${formatRemainingDuration(remainingMs)}"
                 StandardModelDownloadPhase.PAUSED -> "已保留下载进度"
                 StandardModelDownloadPhase.FAILED -> "检查网络后可继续"
-                StandardModelDownloadPhase.COMPLETE -> "文件已完成并保存到本机"
+                StandardModelDownloadPhase.COMPLETE -> "文件已保存到本机，尚未加载"
                 StandardModelDownloadPhase.IDLE -> "Qwen2.5 0.5B · 约 469 MB"
             },
             actionLabel = action,
