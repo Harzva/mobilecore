@@ -169,7 +169,7 @@ The Android local API allows the GitHub Pages origin `https://harzva.github.io` 
 
 MobileCore reports the active model, runtime, revision, backend, quantization, capability snapshot, active-model resource preflight, artifact state, recommendations, and decode metrics. MobileCode uses this snapshot for routing and presents load/unload/switch controls without learning local file paths.
 
-MobileCore `0.1.4-rc6` publishes the strict `mobilecore.local` v2 compatibility range and Android `background_restricted` state in `/health`; MobileCode fails closed before local routing when the handshake is incompatible or Android will not allow MobileCore to remain active. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
+MobileCore `0.1.4-rc6` publishes the strict `mobilecore.local` v2 compatibility range and Android `background_restricted` state in `/health`, allowing clients to fail closed before local routing when the handshake is incompatible or Android will not allow MobileCore to remain active. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
 
 The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
 

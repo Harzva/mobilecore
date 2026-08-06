@@ -157,6 +157,7 @@ class LocalMultimodalApiSmokeTest {
         assertEquals(2, protocol.getInt("major"))
         assertEquals(2, protocol.getInt("min_client_major"))
         assertEquals(2, protocol.getInt("max_client_major"))
+        assertTrue(healthJson.has("background_restricted"))
         val capabilities = healthJson.getJSONObject("capabilities")
         assertFalse(capabilities.getBoolean("video_input"))
         assertFalse(capabilities.getBoolean("audio_output"))

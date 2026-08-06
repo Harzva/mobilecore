@@ -15,7 +15,8 @@ This candidate hardens MobileCore's Android background continuity while preservi
 - Real Qwen2.5 0.5B Q4_K_M model loaded through llama.cpp.
 - 40 authenticated `/health` polls over about two minutes while MobileCode remained resumed: 40/40 passed.
 - Final state: foreground service true, both processes alive, MobileCode foreground true, background restriction false, process freezing false, and no FGS timeout, ANR, OOM, or SIGABRT safety finding.
-- Local debug-signed APK SHA-256: `02ff1fc353a0074d8b098c079925f3104f141fe10246b7c873993fa5a72228e1`. This hash is QA-only and must not be presented as the upload-signed GitHub release artifact.
+- A controlled real-model request returned HTTP 200 and completed one inference with zero request failures; only counters and timing metadata were retained.
+- A deliberately background-restricted emulator state was rejected before the dual-app lane and then restored through the QA harness. This validates detection only; the App never changes the restriction itself.
 - Evidence stores summaries and health metadata only; raw dumpsys, full logcat, prompts, model output, media, credentials, and local model paths are omitted.
 
 ## Remaining gates
