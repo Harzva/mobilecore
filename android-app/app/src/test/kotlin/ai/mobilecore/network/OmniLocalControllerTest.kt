@@ -107,6 +107,20 @@ class OmniLocalControllerTest {
     }
 
     @Test
+    fun statusReportsCurrentResourcesBeforeAnyInstallAttempt() {
+        val status = controller().status()
+        val preflight = status.getJSONObject("preflight")
+
+        assertEquals(8_000_000_000L, preflight.getLong("available_memory_bytes"))
+        assertEquals(10_000_000_000L, preflight.getLong("available_storage_bytes"))
+        assertTrue(preflight.getBoolean("memory_sufficient"))
+        assertTrue(preflight.getBoolean("storage_sufficient"))
+        assertTrue(preflight.getBoolean("resources_sufficient"))
+        assertFalse(status.getBoolean("loaded"))
+        assertFalse(preflight.has("passed"))
+    }
+
+    @Test
     fun healthReportsBackgroundRestrictionForClientRouting() {
         val health = controller(backgroundRestricted = true).health()
 

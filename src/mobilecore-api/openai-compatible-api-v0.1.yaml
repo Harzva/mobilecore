@@ -498,13 +498,57 @@ components:
         wifi_only: {type: boolean, default: true}
     OmniInstallStatus:
       type: object
+      required: [model_id, revision, phase, pair_verified, loaded, wifi_connected, artifacts, preflight]
       properties:
         model_id: {type: string}
         revision: {type: string}
         phase: {type: string}
         pair_verified: {type: boolean}
-        artifacts: {type: object}
-        preflight: {type: object}
+        loaded: {type: boolean, description: True only when the verified pinned pair is active in the runtime}
+        wifi_only_default: {type: boolean, default: true}
+        wifi_connected: {type: boolean}
+        license:
+          type: object
+          properties:
+            id: {type: string, example: qwen-research}
+            review_status: {type: string, example: source_declared_not_legal_reviewed}
+        artifacts:
+          type: object
+          properties:
+            main: {$ref: '#/components/schemas/OmniArtifactStatus'}
+            mmproj: {$ref: '#/components/schemas/OmniArtifactStatus'}
+        preflight:
+          $ref: '#/components/schemas/OmniResourcePreflight'
+    OmniArtifactStatus:
+      type: object
+      required: [digest_algorithm, digest, expected_bytes, installed, verified]
+      properties:
+        digest_algorithm: {type: string, enum: [sha256]}
+        digest: {type: string}
+        expected_bytes: {type: integer, format: int64}
+        installed: {type: boolean}
+        verified: {type: boolean}
+        verified_at_epoch_ms: {type: integer, format: int64, nullable: true}
+    OmniResourcePreflight:
+      type: object
+      required:
+        - required_memory_bytes
+        - available_memory_bytes
+        - required_storage_bytes
+        - available_storage_bytes
+        - memory_sufficient
+        - storage_sufficient
+        - resources_sufficient
+      properties:
+        required_memory_bytes: {type: integer, format: int64}
+        available_memory_bytes: {type: integer, format: int64}
+        required_storage_bytes: {type: integer, format: int64}
+        available_storage_bytes: {type: integer, format: int64}
+        memory_sufficient: {type: boolean}
+        storage_sufficient: {type: boolean}
+        resources_sufficient: {type: boolean}
+        passed: {type: boolean, description: Present after an install preflight has run}
+        failure_code: {type: string, nullable: true}
     ErrorResponse:
       type: object
       required: [error]

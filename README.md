@@ -177,6 +177,8 @@ On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests fro
 
 On 2026-08-07, the exact final-tag upload-signed `0.1.4-rc6` APK was update-installed without deleting the real Qwen2.5 0.5B model. The Android 16 dual-app background lane kept MobileCode resumed for 40 polls (about two minutes); all 40 authenticated health checks passed, MobileCore stayed a typed `dataSync` foreground service, and neither process freezing nor FGS/ANR/OOM safety failures were observed. One controlled local inference also completed with zero request failures. See the [rc6 release evidence](docs/release/tuima-0.1.4-rc6.md). A deliberately background-restricted emulator state was rejected during preflight and is not counted as a runtime pass.
 
+The next Android candidate adds a MobileCore-owned Qwen2.5-Omni lifecycle screen: live pre-consent resource projection, publisher/license disclosure, one-use explicit consent, and install/cancel/verify/load/uninstall controls. An isolated Android 16 ARM64 AVD with insufficient memory correctly omitted the install action and downloaded no artifact. This is a fail-closed UI/control-path result, not evidence that the 3.64 GB pair runs on a phone; verified physical-device image/audio, memory, thermal, and sustained-runtime gates remain open.
+
 ## Benchmarks
 
 Latest local validation, measured on an Android AVD on 2026-06-20 with `Qwen2.5-0.5B-Instruct-Q4_K_M.gguf`:
