@@ -53,6 +53,11 @@ import ai.mobilecore.ui.ModelLifecyclePhase
 import ai.mobilecore.ui.ModelLifecyclePresenter
 import ai.mobilecore.ui.ModelLifecycleTone
 import ai.mobilecore.ui.ModelLifecycleUiModel
+import ai.mobilecore.ui.OmniLifecycleAction
+import ai.mobilecore.ui.OmniLifecycleCallbacks
+import ai.mobilecore.ui.OmniLifecyclePresenter
+import ai.mobilecore.ui.OmniLifecycleScreen
+import ai.mobilecore.ui.OmniLifecycleSnapshot
 import ai.mobilecore.ui.Palette
 import ai.mobilecore.ui.ResultsScreenPresenter
 import ai.mobilecore.ui.StandardModelDownloadPhase
@@ -95,6 +100,7 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -200,6 +206,8 @@ class MainActivity : Activity() {
     private var modelLoadFailurePath: String? = null
     private var modelLoadFailureMessage: String? = null
     private var modelLoadReceiverRegistered = false
+    private var omniLifecycleSnapshot = OmniLifecycleSnapshot()
+    private var omniStatusRefreshInFlight = false
     private val modelLoadStatusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ModelLoadStatusContract.ACTION) return
@@ -233,6 +241,7 @@ class MainActivity : Activity() {
     }
     private val activeDownloadThreads = ConcurrentHashMap<String, Thread>()
     private val progressHandler = Handler(Looper.getMainLooper())
+    private val omniStatusPollRunnable = Runnable { refreshOmniLifecycleStatus() }
     private val modelScopeSearchRunnable = Runnable {
         refreshModelScopeCatalog(force = true)
     }
@@ -328,6 +337,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         progressHandler.removeCallbacks(progressPollRunnable)
         progressHandler.removeCallbacks(modelScopeSearchRunnable)
+        progressHandler.removeCallbacks(omniStatusPollRunnable)
         providerStateByProvider.values.forEach { it.cancelRequested = true }
         activeDownloadThreads.values.forEach { it.interrupt() }
         super.onDestroy()
@@ -364,6 +374,7 @@ class MainActivity : Activity() {
         syncBenchmarkReadiness(render = false)
         refreshRuntimeModelState()
         refreshRecommendationSnapshot()
+        if (currentTab == AppTab.OMNI) refreshOmniLifecycleStatus()
     }
 
     private fun renderCurrentTab(resetScroll: Boolean = false) {
@@ -378,6 +389,7 @@ class MainActivity : Activity() {
             AppTab.VISION_MODELS -> renderVisionModelsTab(contentRoot)
             AppTab.G2D_LAB -> renderG2dLabTab(contentRoot)
             AppTab.VISION -> renderVisionTab(contentRoot)
+            AppTab.OMNI -> renderOmniTab(contentRoot)
             AppTab.TEST -> renderTestTab(contentRoot)
             AppTab.RESULTS -> renderResultsTab(contentRoot)
             AppTab.API -> renderApiTab(contentRoot)
@@ -412,6 +424,7 @@ class MainActivity : Activity() {
         if (tab == AppTab.HOME || tab == AppTab.MODELS) {
             refreshRecommendationSnapshot()
         }
+        if (tab == AppTab.OMNI) refreshOmniLifecycleStatus()
     }
 
     private fun renderHomeTab(content: LinearLayout) {
@@ -476,6 +489,15 @@ class MainActivity : Activity() {
         content.addView(space(14))
         content.addView(sectionTitle("识别结果", "本机处理状态"))
         content.addView(buildOcrResultCard())
+    }
+
+    private fun renderOmniTab(content: LinearLayout) {
+        val screen = OmniLifecycleScreen(this)
+        screen.bind(
+            OmniLifecyclePresenter.present(omniLifecycleSnapshot),
+            OmniLifecycleCallbacks(onAction = ::handleOmniLifecycleAction),
+        )
+        content.addView(screen)
     }
 
     private fun renderGalleryTab(content: LinearLayout) {
@@ -2489,6 +2511,7 @@ class MainActivity : Activity() {
     private fun buildLabAccessCard(): View {
         return surfaceCard(Palette.sky) {
             val links = listOf(
+                LabLink("本地多模态", "Omni 授权、预检与双 artifact 管理", "实验", "chip", Palette.lavender, AppTab.OMNI),
                 LabLink("本地相册搜索", "CLIP 召回 + G2D 候选复核", "产品", "image", Palette.mint, AppTab.GALLERY),
                 LabLink("G2D 端侧验证", "Oxford-Pets 五种策略实测", "论文", "chip", Palette.lavender, AppTab.G2D_LAB),
                 LabLink("视觉模型管理", "YOLO、CLIP 与小型 VLM", "模型", "cube", Palette.sky, AppTab.VISION_MODELS),
@@ -3841,6 +3864,7 @@ class MainActivity : Activity() {
         VISION_MODELS,
         G2D_LAB,
         VISION,
+        OMNI,
         TEST,
         RESULTS,
         API,
@@ -3867,7 +3891,7 @@ class MainActivity : Activity() {
 
     private fun navItem(title: String, icon: String, tab: AppTab): View {
         val selected = currentTab == tab || (tab == AppTab.SETTINGS && currentTab in setOf(
-            AppTab.GALLERY, AppTab.VISION_MODELS, AppTab.G2D_LAB, AppTab.VISION, AppTab.API
+            AppTab.GALLERY, AppTab.VISION_MODELS, AppTab.G2D_LAB, AppTab.VISION, AppTab.OMNI, AppTab.API
         ))
         val accent = if (selected) Palette.mint else Palette.muted
         return LinearLayout(this).apply {
@@ -4806,6 +4830,7 @@ class MainActivity : Activity() {
         method: String,
         body: String?,
         retryCount: Int = 2,
+        readTimeoutMs: Int = 8000,
         onResult: (Int, String, Long) -> Unit,
         onError: (Exception) -> Unit = {
             runOnUiThread {
@@ -4825,7 +4850,7 @@ class MainActivity : Activity() {
                         setRequestProperty("Authorization", "Bearer local")
                         setRequestProperty("Content-Type", "application/json")
                         connectTimeout = 1600
-                        readTimeout = 8000
+                        readTimeout = readTimeoutMs
                         if (body != null) {
                             doOutput = true
                         }
@@ -4845,6 +4870,220 @@ class MainActivity : Activity() {
             }
             runOnUiThread { onError(lastError ?: IOException("本机接口请求失败")) }
         }.start()
+    }
+
+    private fun handleOmniLifecycleAction(action: OmniLifecycleAction) {
+        when (action) {
+            OmniLifecycleAction.START_SERVICE -> withNotificationPermission {
+                startServiceInForeground()
+                progressHandler.postDelayed(omniStatusPollRunnable, 650L)
+            }
+            OmniLifecycleAction.REFRESH -> refreshOmniLifecycleStatus()
+            OmniLifecycleAction.INSTALL -> showOmniInstallConsentDialog()
+            OmniLifecycleAction.CANCEL -> performOmniLifecycleRequest(
+                actionLabel = "取消安装",
+                path = "/mobilecore/omni/cancel",
+                body = "{}",
+                readTimeoutMs = 45_000,
+            )
+            OmniLifecycleAction.VERIFY -> performOmniLifecycleRequest(
+                actionLabel = "校验 artifact",
+                path = "/mobilecore/omni/verify",
+                body = "{}",
+                readTimeoutMs = 300_000,
+            )
+            OmniLifecycleAction.LOAD -> performOmniLifecycleRequest(
+                actionLabel = "加载多模态模型",
+                path = "/mobilecore/omni/load",
+                body = JSONObject()
+                    .put("context_length", 4096)
+                    .put("threads", 4)
+                    .toString(),
+                readTimeoutMs = 180_000,
+            )
+            OmniLifecycleAction.UNINSTALL -> showOmniUninstallDialog()
+            OmniLifecycleAction.OPEN_SOURCE -> openOmniPinnedSource()
+        }
+    }
+
+    private fun refreshOmniLifecycleStatus() {
+        if (omniStatusRefreshInFlight) return
+        omniStatusRefreshInFlight = true
+        progressHandler.removeCallbacks(omniStatusPollRunnable)
+        callLocalApi(
+            path = "/mobilecore/omni/status",
+            method = "GET",
+            body = null,
+            retryCount = 1,
+            onResult = { status, body, _ ->
+                omniStatusRefreshInFlight = false
+                omniLifecycleSnapshot = if (status in 200..299) {
+                    runCatching { OmniLifecyclePresenter.parseStatus(body) }.getOrElse {
+                        omniLifecycleSnapshot.copy(
+                            serviceReachable = true,
+                            failureCode = "request_failed",
+                            failureMessage = "状态响应无法解析",
+                        )
+                    }
+                } else {
+                    OmniLifecyclePresenter.withApiFailure(omniLifecycleSnapshot, body)
+                }
+                renderOmniLifecycleIfVisible()
+                scheduleOmniPollIfBusy()
+            },
+            onError = {
+                omniStatusRefreshInFlight = false
+                omniLifecycleSnapshot = OmniLifecycleSnapshot()
+                renderOmniLifecycleIfVisible()
+            },
+        )
+    }
+
+    private fun performOmniLifecycleRequest(
+        actionLabel: String,
+        path: String,
+        body: String,
+        readTimeoutMs: Int = 15_000,
+    ) {
+        updateStatus("正在$actionLabel")
+        callLocalApi(
+            path = path,
+            method = "POST",
+            body = body,
+            retryCount = 1,
+            readTimeoutMs = readTimeoutMs,
+            onResult = { status, responseBody, _ ->
+                omniLifecycleSnapshot = if (status in 200..299) {
+                    runCatching { OmniLifecyclePresenter.parseStatus(responseBody) }.getOrElse {
+                        omniLifecycleSnapshot.copy(
+                            serviceReachable = true,
+                            failureCode = "request_failed",
+                            failureMessage = "操作完成，但状态响应无法解析",
+                        )
+                    }
+                } else {
+                    OmniLifecyclePresenter.withApiFailure(omniLifecycleSnapshot, responseBody)
+                }
+                updateStatus(if (status in 200..299) "$actionLabel 已提交" else "$actionLabel 未完成")
+                Toast.makeText(
+                    this,
+                    if (status in 200..299) "$actionLabel 已提交" else OmniLifecyclePresenter.present(omniLifecycleSnapshot).statusDetail,
+                    Toast.LENGTH_LONG,
+                ).show()
+                renderOmniLifecycleIfVisible()
+                scheduleOmniPollIfBusy()
+            },
+            onError = {
+                omniLifecycleSnapshot = omniLifecycleSnapshot.copy(
+                    serviceReachable = false,
+                    failureCode = null,
+                    failureMessage = null,
+                )
+                updateStatus("$actionLabel 失败：本机服务不可达")
+                Toast.makeText(this, "$actionLabel 失败，本机服务不可达", Toast.LENGTH_LONG).show()
+                renderOmniLifecycleIfVisible()
+            },
+        )
+    }
+
+    private fun scheduleOmniPollIfBusy() {
+        progressHandler.removeCallbacks(omniStatusPollRunnable)
+        if (OmniLifecyclePresenter.present(omniLifecycleSnapshot).isBusy) {
+            progressHandler.postDelayed(omniStatusPollRunnable, 1_000L)
+        }
+    }
+
+    private fun renderOmniLifecycleIfVisible() {
+        if (currentTab == AppTab.OMNI) renderCurrentTab()
+    }
+
+    private fun showOmniInstallConsentDialog() {
+        val model = OmniLifecyclePresenter.present(omniLifecycleSnapshot)
+        val installAllowed = omniLifecycleSnapshot.resourcesSufficient && omniLifecycleSnapshot.wifiConnected
+        if (!installAllowed) {
+            Toast.makeText(this, "设备条件尚未通过，请先重新检查", Toast.LENGTH_LONG).show()
+            refreshOmniLifecycleStatus()
+            return
+        }
+        val consent = CheckBox(this).apply {
+            text = "我已阅读来源与许可说明，同意本次仅通过 Wi-Fi 下载约 3.39 GiB 到 MobileCore 私有目录。"
+            setTextColor(Palette.ink)
+            textSize = 13f
+            setPadding(dp(4), dp(6), dp(4), dp(6))
+            contentDescription = "明确同意本次 Omni 模型下载"
+        }
+        val message = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), 0, dp(20), 0)
+            addView(label(
+                "发布者是 ggml-org，不是 Qwen 官方 GGUF。许可标识为 ${omniLifecycleSnapshot.licenseId}，状态为“来源声明，未做法律审查”。下载包含 Q4_K_M 主模型和 Q8_0 mmproj；每个文件都必须通过固定字节数和 SHA-256 校验。",
+                13f,
+                Palette.ink,
+                Typeface.NORMAL,
+            ).apply { setLineSpacing(0f, 1.16f) })
+            addView(space(10))
+            addView(label(
+                "内存：${model.memoryLabel}\n存储：${model.storageLabel}\n网络：${model.wifiLabel}",
+                12f,
+                Palette.muted,
+                Typeface.NORMAL,
+            ))
+            addView(space(10))
+            addView(consent)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("安装本地多模态模型？")
+            .setView(message)
+            .setNegativeButton("取消", null)
+            .setNeutralButton("查看来源", null)
+            .setPositiveButton("同意并开始", null)
+            .create()
+        dialog.setOnShowListener {
+            val positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            positive.isEnabled = false
+            consent.setOnCheckedChangeListener { _, checked -> positive.isEnabled = checked }
+            positive.setOnClickListener {
+                if (!consent.isChecked) return@setOnClickListener
+                dialog.dismiss()
+                performOmniLifecycleRequest(
+                    actionLabel = "Omni 安装",
+                    path = "/mobilecore/omni/install",
+                    body = JSONObject()
+                        .put("explicit_consent", true)
+                        .put("accepted_license_id", omniLifecycleSnapshot.licenseId)
+                        .put("wifi_only", true)
+                        .toString(),
+                    readTimeoutMs = 20_000,
+                )
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { openOmniPinnedSource() }
+        }
+        dialog.show()
+    }
+
+    private fun showOmniUninstallDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("卸载本地多模态模型？")
+            .setMessage("将先卸载运行时，再删除这组固定主模型、mmproj、临时文件和校验记录。MobileCode 的对话与证据不会被修改。")
+            .setNegativeButton("保留", null)
+            .setPositiveButton("卸载") { _, _ ->
+                performOmniLifecycleRequest(
+                    actionLabel = "卸载多模态模型",
+                    path = "/mobilecore/omni/uninstall",
+                    body = "{}",
+                    readTimeoutMs = 60_000,
+                )
+            }
+            .show()
+    }
+
+    private fun openOmniPinnedSource() {
+        val revision = omniLifecycleSnapshot.revision
+            .takeIf { it.matches(Regex("[0-9a-f]{40}")) }
+            ?: "75f1b73b657a50f5092502799457ccb4a4a1f9df"
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(
+            "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF/tree/$revision",
+        )))
     }
 
     private fun ensureNotificationPermissionAndStartService() {

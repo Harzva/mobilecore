@@ -135,6 +135,8 @@ curl -X POST http://127.0.0.1:8080/mobilecore/omni/install \
 
 安装是异步操作，客户端轮询 `status`。另有 authenticated `cancel`、`verify`、`load`、`uninstall` 路由。不要在脚本、CI 或首次启动时自动调用 `install`；必须先向用户展示 3.64 GB 总量及 `source_declared_not_legal_reviewed` 状态并取得明确同意。详见 [`../docs/qwen25-omni-3b-compatibility.md`](../docs/qwen25-omni-3b-compatibility.md) 与 [`../docs/mobilecode-local-multimodal-contract.md`](../docs/mobilecode-local-multimodal-contract.md)。
 
+App 内从“我的 → 实验室 → 本地多模态”进入生命周期页。页面在首次安装前就读取实时内存、应用私有存储和 Wi-Fi 状态；条件不足时不显示安装入口。条件通过后，用户仍需在一次性弹窗中勾选确认发布者、许可审查状态、3.39 GiB 双 artifact 下载范围和仅 Wi-Fi 策略。勾选不会持久化，也不能由 MobileCode 代替完成。
+
 ## 4. Phone Agent / VLM Model Candidates
 
 PhoneBuddy 这类手机 agent / 多模态模型不要放进 GGUF LLM catalog。`PhoneBuddyAI/PhoneBuddy-4B` 是 Hugging Face safetensors / BF16 / `qwen3_5` / image-text-to-text 模型，约 4.54B 参数、权重索引约 8.7GB；当前 Android runtime 只支持 GGUF 文本模型、ONNX/TFLite 视觉模型和 diffusion readiness gate，不能直接加载这个 checkpoint。

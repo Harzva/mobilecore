@@ -94,6 +94,10 @@ Authenticated lifecycle routes are:
 
 `install` requires `{"explicit_consent":true,"accepted_license_id":"qwen-research","wifi_only":true}`. It starts an asynchronous app-private download only after preflight passes; MobileCode polls `status` and never receives an artifact path.
 
+`status` is also the pre-consent resource check. Even before the first install attempt, it returns current and required memory/storage, `memory_sufficient`, `storage_sufficient`, `resources_sufficient`, Wi-Fi state, pair verification, and a separate runtime `loaded` boolean. `pair_verified=true` means both files passed the pinned digest contract; it does not mean the pair is currently loaded. Clients must not infer either value from `phase` alone.
+
+The MobileCore App owns the visible consent surface. It shows the conversion publisher, the fact that this is not an official Qwen GGUF, the source-declared/not-legally-reviewed license state, exact download scope, current resource checks, and a one-use checkbox. Consent is not persisted and cannot be supplied by MobileCode on the user’s behalf.
+
 MobileCode must switch ordinary installed models by public `model_id`. The legacy `path` load field remains accepted for host QA compatibility, but must not be emitted, persisted, or submitted by MobileCode.
 
 Generic imported pairs report artifact presence but remain `verified=false` until a trusted manifest/digest flow verifies them. A successful native runtime probe may make local image inference available, but neither app may translate that into a checksum or model-quality claim.

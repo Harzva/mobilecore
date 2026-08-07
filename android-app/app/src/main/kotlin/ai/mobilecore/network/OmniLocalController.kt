@@ -181,7 +181,7 @@ internal class OmniLocalController(
             },
             backgroundRestricted = backgroundRestrictedProbe(),
         ).toJson()
-        base.put("install", snapshotJson(snapshot, environment.wifiConnected))
+        base.put("install", snapshotJson(snapshot, environment))
         base.put(
             "audio_sample_rate_hz",
             if (genericMultimodalLoaded) runtimeMultimodal?.audioSampleRateHz ?: 0
@@ -208,7 +208,7 @@ internal class OmniLocalController(
 
     fun status(): JSONObject {
         val environment = environmentProbe.probe()
-        return snapshotJson(installer.snapshot(), environment.wifiConnected)
+        return snapshotJson(installer.snapshot(), environment)
     }
 
     fun install(request: JSONObject): OmniControllerResult {
@@ -246,7 +246,7 @@ internal class OmniLocalController(
     fun verify(): OmniControllerResult {
         val snapshot = installer.verifyInstalledPair()
         return snapshot.failure?.let { OmniControllerResult(false, errorJson(it)) }
-            ?: OmniControllerResult(true, snapshotJson(snapshot, environmentProbe.probe().wifiConnected))
+            ?: OmniControllerResult(true, snapshotJson(snapshot, environmentProbe.probe()))
     }
 
     fun load(request: JSONObject): OmniControllerResult {
@@ -301,21 +301,31 @@ internal class OmniLocalController(
         backend.unloadModel()
         val snapshot = installer.uninstall()
         return snapshot.failure?.let { OmniControllerResult(false, errorJson(it)) }
-            ?: OmniControllerResult(true, snapshotJson(snapshot, environmentProbe.probe().wifiConnected))
+            ?: OmniControllerResult(true, snapshotJson(snapshot, environmentProbe.probe()))
     }
 
-    private fun snapshotJson(snapshot: OmniInstallSnapshot, wifiConnected: Boolean): JSONObject {
+    private fun snapshotJson(
+        snapshot: OmniInstallSnapshot,
+        environment: ai.mobilecore.omni.artifact.OmniInstallEnvironment,
+    ): JSONObject {
+        val resourcesSufficient =
+            environment.availableMemoryBytes >= manifest.minimumAvailableMemoryBytes &&
+                environment.availableStorageBytes >= manifest.requiredStorageBytes
+        val main = requireNotNull(manifest.artifact(OmniArtifactRole.MAIN))
+        val loaded = backend.isModelLoaded() && snapshot.pairVerified &&
+            backend.metrics().activeModel.equals(main.fileName.removeSuffix(".gguf"), ignoreCase = true)
         return JSONObject().apply {
             put("model_id", snapshot.modelId)
             put("revision", snapshot.revision)
             put("phase", snapshot.phase.name.lowercase())
             put("pair_verified", snapshot.pairVerified)
+            put("loaded", loaded)
             put("license", JSONObject().apply {
                 put("id", manifest.licenseId)
                 put("review_status", manifest.licenseReviewStatus.name.lowercase())
             })
             put("wifi_only_default", true)
-            put("wifi_connected", wifiConnected)
+            put("wifi_connected", environment.wifiConnected)
             put("artifacts", JSONObject().apply {
                 put("main", verificationJson(snapshot.main))
                 put("mmproj", verificationJson(snapshot.mmproj))
@@ -323,9 +333,12 @@ internal class OmniLocalController(
             put("preflight", JSONObject().apply {
                 put("required_memory_bytes", manifest.minimumAvailableMemoryBytes)
                 put("required_storage_bytes", manifest.requiredStorageBytes)
+                put("available_memory_bytes", environment.availableMemoryBytes)
+                put("available_storage_bytes", environment.availableStorageBytes)
+                put("memory_sufficient", environment.availableMemoryBytes >= manifest.minimumAvailableMemoryBytes)
+                put("storage_sufficient", environment.availableStorageBytes >= manifest.requiredStorageBytes)
+                put("resources_sufficient", resourcesSufficient)
                 snapshot.lastPreflight?.let { preflight ->
-                    put("available_memory_bytes", preflight.availableMemoryBytes)
-                    put("available_storage_bytes", preflight.availableStorageBytes)
                     put("passed", preflight.passed)
                     put("failure_code", preflight.failure?.code?.wireValue ?: JSONObject.NULL)
                 }

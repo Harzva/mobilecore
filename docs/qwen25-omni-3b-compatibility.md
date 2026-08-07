@@ -44,7 +44,9 @@ Pinned llama.cpp/libmtmd revision: `e1af89a6815737a5db132eee23a94a8ee58553e0`. T
 
 Android’s production environment probe uses app-private storage, available system memory, and `NetworkCapabilities.TRANSPORT_WIFI`. The manifest includes `ACCESS_NETWORK_STATE`; it does not request broad storage access.
 
-The lifecycle service is wired to authenticated loopback-only `status`, `install`, `cancel`, `verify`, `load`, and `uninstall` endpoints. The install endpoint requires explicit consent plus the displayed source-declared license ID before its background worker can start. A dedicated in-app consent screen and physical-device evidence are still missing, so release documentation must not call Qwen2.5-Omni a default or broadly compatible model.
+The lifecycle service is wired to authenticated loopback-only `status`, `install`, `cancel`, `verify`, `load`, and `uninstall` endpoints. The install endpoint requires explicit consent plus the displayed source-declared license ID before its background worker can start. The Android App now has a MobileCore-owned lifecycle screen with live memory/storage/Wi-Fi checks, publisher and license disclosure, a non-persisted one-use consent checkbox, install/cancel/verify/load/uninstall actions, and an explicit reminder that MobileCore has no Phone Use or transaction authority. Physical-device evidence is still missing, so release documentation must not call Qwen2.5-Omni a default or broadly compatible model.
+
+`GET /mobilecore/omni/status` returns live available and required resource values before any install attempt. `pair_verified` and `loaded` are separate: a complete digest-verified pair is not advertised as active until the runtime confirms it. When the current device fails memory, storage, or Wi-Fi policy, the UI omits the install action instead of letting the user consent to a download that preflight will reject.
 
 ## Typed failures
 
@@ -52,7 +54,9 @@ The artifact layer exposes the required wire values `unsupported_modality`, `art
 
 ## Evidence boundary
 
-Unit coverage verifies the exact manifest, pair completeness, consent/license/Wi-Fi gates, independent storage and memory failures, `.part` verification, cancellation cleanup, load-pair gating, snapshot invalidation, typed projector failures, and uninstall. Android arm64 native compilation and an Android 16 emulator run also verify that the pinned llama.cpp revision loads a real Qwen3.5 0.8B GGUF/mmproj pair and completes an OpenAI-compatible image request through libmtmd. The bridge explicitly initializes the upstream `mtmd_input_text.text_len` field introduced after the previous pin; leaving it unset causes deterministic tokenize failure.
+Unit coverage verifies the exact manifest, pair completeness, consent/license/Wi-Fi gates, independent storage and memory failures, pre-consent live resource projection, `.part` verification, cancellation cleanup, load-pair gating, snapshot invalidation, typed projector failures, and uninstall. Android arm64 native compilation and an Android 16 emulator run also verify that the pinned llama.cpp revision loads a real Qwen3.5 0.8B GGUF/mmproj pair and completes an OpenAI-compatible image request through libmtmd. The bridge explicitly initializes the upstream `mtmd_input_text.text_len` field introduced after the previous pin; leaving it unset causes deterministic tokenize failure.
+
+On 2026-08-07, an isolated Android 16 ARM64 AVD exercised the new lifecycle screen using a debug build. The screen first reported the stopped service, then started it only from the visible user action and projected the loopback status as 1.12 GiB available memory versus a 4.39 GiB conservative gate, 4.43 GiB storage versus 3.89 GiB required, and no Wi-Fi. It displayed “当前设备条件不足”, exposed only a recheck action, and did not start an artifact download. JVM tests (155), Android Lint, arm64 native build, and Debug APK assembly passed. The screenshot and raw UI dump remain local QA artifacts and are not committed.
 
 That emulator run is a compatibility smoke test for the shared libmtmd bridge, not evidence that the 3.64 GB Qwen2.5-Omni pair fits or performs acceptably on a phone. No Qwen2.5-Omni artifact was downloaded for this change. It does not prove Omni output quality, speed, peak PSS/RSS, temperature, or sustained stability.
 
