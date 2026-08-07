@@ -12,6 +12,7 @@ import ai.mobilecore.runtime.MultimodalRuntimeBackend
 import ai.mobilecore.runtime.RuntimeBackend
 import ai.mobilecore.runtime.RuntimeMetrics
 import ai.mobilecore.runtime.RuntimeMultimodalStatus
+import com.mobilecore.app.BuildConfig
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import fi.iki.elonen.NanoHTTPD
@@ -62,6 +63,7 @@ class LocalMultimodalApiSmokeTest {
             backend = backend,
             modelManager = ModelManager(backend, context),
             context = context,
+            apiVersion = BuildConfig.VERSION_NAME,
             apiKey = API_KEY,
             port = port,
         )
@@ -152,6 +154,7 @@ class LocalMultimodalApiSmokeTest {
         val health = request("GET", "/health")
         assertEquals(200, health.code)
         val healthJson = JSONObject(health.body)
+        assertEquals(BuildConfig.VERSION_NAME, healthJson.getString("version"))
         val protocol = healthJson.getJSONObject("protocol")
         assertEquals("mobilecore.local", protocol.getString("name"))
         assertEquals(2, protocol.getInt("major"))
