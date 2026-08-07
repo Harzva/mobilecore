@@ -20,5 +20,6 @@ This prerelease supersedes the rejected rc7 tag. It keeps the MobileCore-owned Q
 - Upload certificate SHA-256: `6d7661f82f2e6d415e8276b61526287ed373ee5b992cac7ea57f1e9f7a192cb0`
 - The final APK update-installed over rc7, cold-launched in 575 ms, returned `version=0.1.4-rc8` from `/health`, preserved the same three local model entries, and showed no fatal marker in the verification log window.
 - Local validation passed 155 JVM tests, lint, and APK/test-APK assembly. An isolated Android 16 emulator passed both targeted API instrumentation tests, including the generated-build-version assertion.
+- After publication, the installed MobileCode `0.1.78` instrumentation process completed 30/30 requests directly against the official rc8 loopback service while airplane mode was enabled: 15 buffered responses and 15 SSE responses in 283.928 seconds. MobileCore reported 30 requests, zero failures, and the same loaded Qwen2.5 0.5B model; the QA wrapper restored airplane mode afterward. This remains emulator evidence.
 
 Physical Qwen2.5-Omni image/audio, peak memory, sustained thermal, transfer cancellation, and background recovery remain open gates. MobileCore continues to have no Phone Use, login, credential, click, approval, or transaction authority.
