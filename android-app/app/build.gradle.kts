@@ -32,12 +32,16 @@ android {
     compileSdk = 35
     ndkVersion = "28.2.13676358"
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.mobilecore.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.1.4-rc7"
+        versionCode = 12
+        versionName = "0.1.4-rc8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

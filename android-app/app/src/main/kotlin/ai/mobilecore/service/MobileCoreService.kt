@@ -5,6 +5,7 @@ import ai.mobilecore.runtime.MockRuntimeBackend
 import ai.mobilecore.runtime.ModelManager
 import ai.mobilecore.runtime.LoadOptions
 import ai.mobilecore.runtime.ModelLoadStatusContract
+import com.mobilecore.app.BuildConfig
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -41,6 +42,7 @@ class MobileCoreService : Service() {
             backend = backend,
             modelManager = modelManager,
             context = applicationContext,
+            apiVersion = BuildConfig.VERSION_NAME,
             port = 8080,
             apiKey = "local"
         )

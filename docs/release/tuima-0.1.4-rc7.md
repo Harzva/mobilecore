@@ -1,5 +1,7 @@
 # TuiMa 0.1.4-rc7
 
+Status: rejected before GitHub Release publication. The final tag APK correctly reported Android package version `0.1.4-rc7`, but `/health.version` still returned the older hard-coded `0.1.4-rc6`. Model files survived the update and no crash occurred; rc8 replaces the hard-coded value with the generated Android build version and adds an instrumentation assertion. No rc7 GitHub Release or store artifact was published.
+
 This candidate adds a MobileCore-owned Qwen2.5-Omni lifecycle surface while preserving the product boundary: MobileCore performs local inference; MobileCode owns orchestration, Phone Use, approvals, credentials, transactions, and ActionEvidence.
 
 ## Changes
