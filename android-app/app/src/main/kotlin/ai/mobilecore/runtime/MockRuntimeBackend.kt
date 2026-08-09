@@ -4,10 +4,13 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import org.json.JSONObject
+import java.io.File
 
 class MockRuntimeBackend(private val context: Context) : RuntimeBackend, MultimodalRuntimeBackend {
     private var activeModel: String? = null
+    private var activeModelCanonicalPath: String? = null
     private var activeProjector: String? = null
+    private var activeProjectorCanonicalPath: String? = null
     private var lastMetrics: RuntimeMetrics = RuntimeMetrics(
         activeModel = null,
         backend = "android-llama-cpp-stub"
@@ -38,7 +41,10 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
 
     override fun loadModel(modelPath: String, options: LoadOptions): LoadResult {
         val start = SystemClock.elapsedRealtime()
+        activeModel = null
+        activeModelCanonicalPath = null
         activeProjector = null
+        activeProjectorCanonicalPath = null
         val nativeResult = JSONObject(
             RuntimeBridge.loadModel(modelPath, options.contextLength, options.threads)
         )
@@ -50,6 +56,7 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         val ok = nativeResult.optBoolean("ok", RuntimeBridge.isLibraryReady())
         if (ok) {
             activeModel = candidateModel
+            activeModelCanonicalPath = canonicalPath(modelPath)
             lastMetrics = lastMetrics.copy(
                 activeModel = activeModel,
                 backend = backendInfo().id,
@@ -70,12 +77,16 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         val hadModel = activeModel != null
         RuntimeBridge.unload()
         activeModel = null
+        activeModelCanonicalPath = null
         activeProjector = null
+        activeProjectorCanonicalPath = null
         lastMetrics = RuntimeMetrics(activeModel = null, backend = backendInfo().id)
         return hadModel
     }
 
     override fun isModelLoaded(): Boolean = activeModel != null
+
+    override fun activeModelPath(): String? = activeModelCanonicalPath
 
     override fun loadProjector(
         projectorPath: String,
@@ -100,6 +111,7 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
             )
         }
         activeProjector = projectorId.takeIf { ok }
+        activeProjectorCanonicalPath = canonicalPath(projectorPath).takeIf { ok }
         return ok
     }
 
@@ -108,6 +120,7 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         val native = runCatching { JSONObject(RuntimeBridge.info()) }.getOrElse { JSONObject() }
         return RuntimeMultimodalStatus(
             projectorId = projectorId,
+            projectorPath = activeProjectorCanonicalPath,
             imageInput = native.optBoolean("visionInput", false),
             audioInput = native.optBoolean("audioInput", false),
             audioSampleRateHz = native.optInt("audioSampleRate", 0),
@@ -210,6 +223,10 @@ class MockRuntimeBackend(private val context: Context) : RuntimeBackend, Multimo
         put("modelDir", context.filesDir.absolutePath)
         put("status", if (isModelLoaded()) "loaded" else "idle")
     }.toString()
+
+    private fun canonicalPath(path: String): String? {
+        return runCatching { File(path).canonicalPath }.getOrNull()
+    }
 
     private fun parseNativeChatResult(
         rawAnswer: String,

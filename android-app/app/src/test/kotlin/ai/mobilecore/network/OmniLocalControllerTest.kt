@@ -4,6 +4,8 @@ import ai.mobilecore.omni.artifact.OmniInstallEnvironment
 import ai.mobilecore.omni.artifact.OmniInstallEnvironmentProbe
 import ai.mobilecore.omni.artifact.OmniArtifactFailureCode
 import ai.mobilecore.omni.artifact.OmniArtifactRole
+import ai.mobilecore.omni.artifact.Qwen25Omni3bArtifacts
+import ai.mobilecore.runtime.ArtifactHealth
 import ai.mobilecore.runtime.BackendInfo
 import ai.mobilecore.runtime.ChatMessage
 import ai.mobilecore.runtime.ChatOptions
@@ -59,6 +61,7 @@ class OmniLocalControllerTest {
             artifacts.getJSONObject("mmproj").getLong("expected_bytes"),
         )
         assertFalse(health.getJSONObject("install").getBoolean("pair_verified"))
+        assertFalse(health.toString().contains(root.absolutePath))
     }
 
     @Test
@@ -141,7 +144,7 @@ class OmniLocalControllerTest {
             loaded = true,
         )
         val health = OmniLocalController(
-            backend = ActiveTestRuntimeBackend(model.id),
+            backend = ActiveTestRuntimeBackend(model.id, model.path),
             version = "test",
             installDirectory = root,
             environmentProbe = OmniInstallEnvironmentProbe {
@@ -152,7 +155,6 @@ class OmniLocalControllerTest {
                 )
             },
             runtimeInfo = { JSONObject().put("modelLoaded", true) },
-            activeModelQuantization = { model.quantization },
             activeModelLookup = { model },
         ).health()
 
@@ -165,6 +167,50 @@ class OmniLocalControllerTest {
         assertFalse(health.getJSONObject("artifacts").getJSONObject("main").getBoolean("verified"))
         assertTrue(health.getJSONObject("artifacts").getJSONObject("main").isNull("digest"))
         assertFalse(health.getJSONObject("artifacts").getJSONObject("mmproj").getBoolean("present"))
+    }
+
+    @Test
+    fun healthUsesCatalogBackedCurrentProcessDigestProofForActiveTextModel() {
+        val digest = "18ea1f301079bba6391ab6d455c0c8565fd5a3214075eb2cd9daf351dedc719b"
+        val model = RuntimeModel(
+            id = "qwen3-0.6b-q4_k_m",
+            path = root.resolve("qwen3-0.6b-q4_k_m.gguf").absolutePath,
+            format = "gguf",
+            backend = "llama.cpp",
+            quantization = "Q4_K_M",
+            contextLength = 2048,
+            sizeBytes = 484_220_160L,
+            loaded = true,
+        )
+        val health = OmniLocalController(
+            backend = ActiveTestRuntimeBackend(model.id, model.path),
+            version = "test",
+            installDirectory = root,
+            environmentProbe = OmniInstallEnvironmentProbe {
+                OmniInstallEnvironment(
+                    availableMemoryBytes = 1_500_000_000L,
+                    availableStorageBytes = 1_000_000_000L,
+                    wifiConnected = false,
+                )
+            },
+            runtimeInfo = { JSONObject().put("modelLoaded", true) },
+            activeModelLookup = { model },
+            activeArtifactHealthLookup = {
+                ArtifactHealth(
+                    fileName = "qwen3-0.6b-q4_k_m.gguf",
+                    expectedSha256 = digest,
+                    expectedBytes = model.sizeBytes,
+                    present = true,
+                    verified = true,
+                )
+            },
+        ).health()
+
+        val artifact = health.getJSONObject("artifacts").getJSONObject("main")
+        assertEquals(digest, artifact.getString("digest"))
+        assertEquals(model.sizeBytes, artifact.getLong("expected_bytes"))
+        assertTrue(artifact.getBoolean("present"))
+        assertTrue(artifact.getBoolean("verified"))
     }
 
     @Test
@@ -186,7 +232,12 @@ class OmniLocalControllerTest {
             modelFamily = "qwen3.5-0.8b",
         )
         val health = OmniLocalController(
-            backend = ActiveMultimodalTestRuntimeBackend(model.id, projector.id),
+            backend = ActiveMultimodalTestRuntimeBackend(
+                model.id,
+                model.path,
+                projector.id,
+                projector.path,
+            ),
             version = "test",
             installDirectory = root,
             environmentProbe = OmniInstallEnvironmentProbe {
@@ -197,7 +248,6 @@ class OmniLocalControllerTest {
                 )
             },
             runtimeInfo = { JSONObject().put("modelLoaded", true) },
-            activeModelQuantization = { model.quantization },
             activeModelLookup = { model },
             activeProjectorLookup = { projector },
         ).health()
@@ -214,6 +264,187 @@ class OmniLocalControllerTest {
             model.sizeBytes + projector.sizeBytes + 128L * 1024L * 1024L,
             health.getJSONObject("preflight").getJSONObject("memory").getLong("required_bytes"),
         )
+    }
+
+    @Test
+    fun healthRejectsSameBasenameWhenLookupDoesNotMatchExactActivePath() {
+        val internal = RuntimeModel(
+            id = "same-q4_k_m",
+            path = root.resolve("internal/same-q4_k_m.gguf").absolutePath,
+            format = "gguf",
+            backend = "llama.cpp",
+            quantization = "Q4_K_M",
+            contextLength = 2048,
+            sizeBytes = 10L,
+            loaded = false,
+        )
+        val externalPath = root.resolve("external/same-q4_k_m.gguf").absolutePath
+        val health = OmniLocalController(
+            backend = ActiveTestRuntimeBackend(internal.id, externalPath),
+            version = "test",
+            installDirectory = root,
+            environmentProbe = environmentProbe(),
+            runtimeInfo = { JSONObject().put("modelLoaded", true) },
+            // A basename-only lookup would return this wrong artifact. The controller must reject it.
+            activeModelLookup = { internal },
+        ).health()
+
+        assertFalse(health.getBoolean("model_loaded"))
+        assertTrue(health.isNull("active_model"))
+        assertEquals("unknown", health.getString("quantization"))
+        assertFalse(health.getJSONObject("capabilities").getBoolean("text_input"))
+    }
+
+    @Test
+    fun healthRejectsSameNamedProjectorFromDifferentPath() {
+        val model = RuntimeModel(
+            id = "vision-q4_k_m",
+            path = root.resolve("vision-q4_k_m.gguf").absolutePath,
+            format = "gguf",
+            backend = "llama.cpp",
+            quantization = "Q4_K_M",
+            contextLength = 2048,
+            sizeBytes = 10L,
+            loaded = true,
+        )
+        val internalProjector = RuntimeProjector(
+            id = "mmproj-vision-bf16",
+            path = root.resolve("internal/mmproj-vision-bf16.gguf").absolutePath,
+            sizeBytes = 8L,
+            modelFamily = "vision",
+        )
+        val externalProjectorPath = root.resolve("external/mmproj-vision-bf16.gguf").absolutePath
+        val health = OmniLocalController(
+            backend = ActiveMultimodalTestRuntimeBackend(
+                model.id,
+                model.path,
+                internalProjector.id,
+                externalProjectorPath,
+            ),
+            version = "test",
+            installDirectory = root,
+            environmentProbe = environmentProbe(),
+            runtimeInfo = { JSONObject().put("modelLoaded", true) },
+            activeModelLookup = { model },
+            // A projector-id lookup would return this wrong, same-named artifact.
+            activeProjectorLookup = { internalProjector },
+        ).health()
+
+        assertTrue(health.getBoolean("model_loaded"))
+        assertEquals("llama.cpp", health.getString("runtime"))
+        assertFalse(health.getJSONObject("capabilities").getBoolean("image_input"))
+        assertFalse(health.getJSONObject("artifacts").getJSONObject("mmproj").getBoolean("present"))
+    }
+
+    @Test
+    fun uninstallDoesNotUnloadAnotherSameNamedArtifact() {
+        val main = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MAIN))
+        val mmproj = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MMPROJ))
+        val installedMain = root.resolve(main.fileName).apply { writeText("installed-main") }
+        val installedProjector = root.resolve(mmproj.fileName).apply { writeText("installed-projector") }
+        val externalSameName = root.resolve("external/${main.fileName}").apply {
+            parentFile?.mkdirs()
+            writeText("other-model")
+        }
+        val backend = MutableActiveRuntimeBackend(
+            modelId = main.fileName.removeSuffix(".gguf"),
+            modelPath = externalSameName.absolutePath,
+        )
+
+        val result = controllerForBackend(backend).uninstall()
+
+        assertTrue(result.accepted)
+        assertEquals(0, backend.unloadCalls)
+        assertTrue(backend.isModelLoaded())
+        assertFalse(installedMain.exists())
+        assertFalse(installedProjector.exists())
+    }
+
+    @Test
+    fun uninstallUnloadsDifferentMainWhenItUsesManagedOmniProjector() {
+        val main = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MAIN))
+        val mmproj = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MMPROJ))
+        val installedMain = root.resolve(main.fileName).apply { writeText("installed-main") }
+        val installedProjector = root.resolve(mmproj.fileName).apply { writeText("installed-projector") }
+        val otherMain = root.resolve("Qwen2.5-Omni-3B-Q5_K_M.gguf").apply { writeText("other-main") }
+        val backend = MutableActiveMultimodalRuntimeBackend(
+            modelId = otherMain.nameWithoutExtension,
+            modelPath = otherMain.absolutePath,
+            projectorId = installedProjector.nameWithoutExtension,
+            projectorPath = installedProjector.absolutePath,
+        )
+
+        val result = controllerForBackend(backend).uninstall()
+
+        assertTrue(result.accepted)
+        assertEquals(1, backend.unloadCalls)
+        assertFalse(backend.isModelLoaded())
+        assertFalse(installedMain.exists())
+        assertFalse(installedProjector.exists())
+        assertTrue(otherMain.exists())
+    }
+
+    @Test
+    fun uninstallKeepsArtifactsWhenManagedProjectorCannotBeConfirmedUnloaded() {
+        val main = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MAIN))
+        val mmproj = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MMPROJ))
+        val installedMain = root.resolve(main.fileName).apply { writeText("installed-main") }
+        val installedProjector = root.resolve(mmproj.fileName).apply { writeText("installed-projector") }
+        val otherMain = root.resolve("Qwen2.5-Omni-3B-Q5_K_M.gguf").apply { writeText("other-main") }
+        val backend = MutableActiveMultimodalRuntimeBackend(
+            modelId = otherMain.nameWithoutExtension,
+            modelPath = otherMain.absolutePath,
+            projectorId = installedProjector.nameWithoutExtension,
+            projectorPath = installedProjector.absolutePath,
+            clearOnUnload = false,
+        )
+
+        val result = controllerForBackend(backend).uninstall()
+
+        assertFalse(result.accepted)
+        assertEquals("model_load_failed", result.body.getJSONObject("error").getString("code"))
+        assertEquals(1, backend.unloadCalls)
+        assertTrue(installedMain.exists())
+        assertTrue(installedProjector.exists())
+    }
+
+    @Test
+    fun uninstallKeepsOmniArtifactsWhenRuntimeCannotConfirmUnload() {
+        val main = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MAIN))
+        val mmproj = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MMPROJ))
+        val installedMain = root.resolve(main.fileName).apply { writeText("installed-main") }
+        val installedProjector = root.resolve(mmproj.fileName).apply { writeText("installed-projector") }
+        val backend = MutableActiveRuntimeBackend(
+            modelId = main.fileName.removeSuffix(".gguf"),
+            modelPath = installedMain.absolutePath,
+            unloadResult = true,
+            clearOnUnload = false,
+        )
+
+        val result = controllerForBackend(backend).uninstall()
+
+        assertFalse(result.accepted)
+        assertEquals("model_load_failed", result.body.getJSONObject("error").getString("code"))
+        assertEquals(1, backend.unloadCalls)
+        assertTrue(installedMain.exists())
+        assertTrue(installedProjector.exists())
+    }
+
+    @Test
+    fun uninstallFailsClosedWhenLoadedRuntimeHasNoArtifactPath() {
+        val main = requireNotNull(Qwen25Omni3bArtifacts.manifest.artifact(OmniArtifactRole.MAIN))
+        val installedMain = root.resolve(main.fileName).apply { writeText("installed-main") }
+        val backend = MutableActiveRuntimeBackend(
+            modelId = main.fileName.removeSuffix(".gguf"),
+            modelPath = null,
+        )
+
+        val result = controllerForBackend(backend).uninstall()
+
+        assertFalse(result.accepted)
+        assertEquals("model_load_failed", result.body.getJSONObject("error").getString("code"))
+        assertEquals(0, backend.unloadCalls)
+        assertTrue(installedMain.exists())
     }
 
     private fun controller(backgroundRestricted: Boolean = false): OmniLocalController {
@@ -238,6 +469,24 @@ class OmniLocalControllerTest {
             backgroundRestrictedProbe = { backgroundRestricted },
         )
     }
+
+    private fun controllerForBackend(backend: RuntimeBackend): OmniLocalController {
+        return OmniLocalController(
+            backend = backend,
+            version = "test",
+            installDirectory = root,
+            environmentProbe = environmentProbe(),
+            runtimeInfo = { JSONObject().put("modelLoaded", backend.isModelLoaded()) },
+        )
+    }
+
+    private fun environmentProbe() = OmniInstallEnvironmentProbe {
+        OmniInstallEnvironment(
+            availableMemoryBytes = 8_000_000_000L,
+            availableStorageBytes = 10_000_000_000L,
+            wifiConnected = true,
+        )
+    }
 }
 
 private class TestRuntimeBackend : RuntimeBackend {
@@ -254,11 +503,15 @@ private class TestRuntimeBackend : RuntimeBackend {
     override fun metrics() = RuntimeMetrics(activeModel = null, backend = "test")
 }
 
-private class ActiveTestRuntimeBackend(private val modelId: String) : RuntimeBackend {
+private class ActiveTestRuntimeBackend(
+    private val modelId: String,
+    private val modelPath: String,
+) : RuntimeBackend {
     override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
     override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(true, modelId, 0, 0)
     override fun unloadModel() = true
     override fun isModelLoaded() = true
+    override fun activeModelPath() = modelPath
     override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
         ChatResult(model = options.model, message = "not used")
 
@@ -270,12 +523,15 @@ private class ActiveTestRuntimeBackend(private val modelId: String) : RuntimeBac
 
 private class ActiveMultimodalTestRuntimeBackend(
     private val modelId: String,
+    private val modelPath: String,
     private val projectorId: String,
+    private val projectorPath: String,
 ) : RuntimeBackend, MultimodalRuntimeBackend {
     override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
     override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(true, modelId, 0, 0)
     override fun unloadModel() = true
     override fun isModelLoaded() = true
+    override fun activeModelPath() = modelPath
     override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
         ChatResult(model = options.model, message = "not used")
 
@@ -285,7 +541,87 @@ private class ActiveMultimodalTestRuntimeBackend(
     override fun metrics() = RuntimeMetrics(activeModel = modelId, backend = "test")
     override fun multimodalStatus() = RuntimeMultimodalStatus(
         projectorId = projectorId,
+        projectorPath = projectorPath,
         imageInput = true,
+    )
+
+    override fun mediaChat(
+        modelId: String,
+        mediaPath: String,
+        mediaType: String,
+        prompt: String,
+        maxTokens: Int,
+    ) = ChatResult(model = modelId, message = "not used")
+}
+
+private class MutableActiveRuntimeBackend(
+    private val modelId: String,
+    private var modelPath: String?,
+    private val unloadResult: Boolean = true,
+    private val clearOnUnload: Boolean = true,
+) : RuntimeBackend {
+    private var loaded = true
+    var unloadCalls: Int = 0
+        private set
+
+    override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
+    override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(false, modelId, 0, 0)
+    override fun unloadModel(): Boolean {
+        unloadCalls += 1
+        if (unloadResult && clearOnUnload) {
+            loaded = false
+            modelPath = null
+        }
+        return unloadResult
+    }
+
+    override fun isModelLoaded() = loaded
+    override fun activeModelPath() = modelPath
+    override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
+        ChatResult(model = options.model, message = "not used")
+
+    override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
+        emptySequence()
+
+    override fun metrics() = RuntimeMetrics(activeModel = modelId.takeIf { loaded }, backend = "test")
+}
+
+private class MutableActiveMultimodalRuntimeBackend(
+    private val modelId: String,
+    private var modelPath: String?,
+    private val projectorId: String,
+    private var projectorPath: String?,
+    private val clearOnUnload: Boolean = true,
+) : RuntimeBackend, MultimodalRuntimeBackend {
+    private var loaded = true
+    var unloadCalls: Int = 0
+        private set
+
+    override fun backendInfo() = BackendInfo("test", "jvm", "test", emptyList(), listOf("cpu"), "ok")
+    override fun loadModel(modelPath: String, options: LoadOptions) = LoadResult(false, modelId, 0, 0)
+    override fun unloadModel(): Boolean {
+        unloadCalls += 1
+        if (clearOnUnload) {
+            loaded = false
+            modelPath = null
+            projectorPath = null
+        }
+        return true
+    }
+
+    override fun isModelLoaded() = loaded
+    override fun activeModelPath() = modelPath
+    override fun chat(messages: List<ChatMessage>, options: ChatOptions) =
+        ChatResult(model = options.model, message = "not used")
+
+    override fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken> =
+        emptySequence()
+
+    override fun metrics() = RuntimeMetrics(modelId.takeIf { loaded }, "test")
+    override fun multimodalStatus() = RuntimeMultimodalStatus(
+        projectorId = projectorId.takeIf { loaded },
+        projectorPath = projectorPath,
+        imageInput = loaded,
     )
 
     override fun mediaChat(

@@ -26,11 +26,12 @@ data class VisionModelFile(
 
 class VisionModelManager(context: Context) {
     private val internalDir = File(context.filesDir, "vision/models").apply { mkdirs() }
-    private val externalDir = context.getExternalFilesDir("vision/models")?.apply { mkdirs() }
     private val supportedExtensions = setOf("onnx", "ort", "tflite", "mnn")
 
     fun modelDirectories(): List<File> {
-        return listOfNotNull(internalDir, externalDir)
+        // Imports, the Vision API and gallery CLIP runtime share this one trusted root.
+        // Combining artifacts with an external directory could silently pair mismatched models.
+        return listOf(internalDir)
     }
 
     fun scanModels(): List<VisionModelFile> {

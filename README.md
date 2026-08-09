@@ -31,7 +31,9 @@ Latest Android prerelease: [TuiMa 0.1.4 RC8](https://github.com/Harzva/mobilecor
 
 MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device. The iOS app now has a buildable SwiftUI skeleton with Files import, an Objective-C++ llama.cpp bridge, and foreground localhost routes.
 
-The Android Models tab now includes an offline **Mobile Model Playground** catalog snapshot. Playground owns model provenance, conversion attribution, immutable revisions, licenses, SHA-256 digests, capabilities, and evidence; MobileCore owns local-file discovery, loading, inference, and benchmarks. Community ModelScope search remains available but is explicitly separated from Playground-curated entries and their declared validation state.
+The Android Models tab now includes an offline [Mobile Model Playground](https://github.com/Harzva/mobile-model-playground) catalog snapshot. Playground owns model provenance, conversion attribution, immutable revisions, licenses, SHA-256 digests, capabilities, and evidence; MobileCore owns trusted download, local-file discovery, loading, inference, and benchmarks. Community ModelScope search remains available but is explicitly separated from Playground-curated entries and their declared validation state.
+
+The Android lab also includes local text-to-photo search: paired CLIP ONNX encoders build an app-private MediaStore index and rank photos from a natural-language query without sending images or queries through MobileCore's network layer. The current product path is CLIP-only; the closed G2D candidate-verifier contract exists, but no VLM reranker is presented as enabled.
 
 It is designed to sit below MobileCode or any other mobile app that wants to call a local LLM through `http://127.0.0.1:8080/v1`.
 
@@ -43,8 +45,9 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | iOS app | SwiftUI app under `ios-app/` with Files-based GGUF import, `Documents/MobileCore/models`, Objective-C++ llama.cpp bridge, and foreground localhost API |
 | Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, recommendations, and model-ID load/unload routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
-| Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload text models and compatible main-GGUF/mmproj vision pairs through app buttons or local API |
-| Model Playground | Bundled source-transparent catalog with separate upstream/converter attribution, declared versus measured capabilities, license and quality gates, pinned sources, and honest absent/local-unverified/active-unverified states |
+| Model flow | Import GGUF, or install an eligible Playground artifact through storage preflight, resumable HTTPS, exact byte/SHA-256 verification and atomic app-private placement; load/unload text models and compatible main-GGUF/mmproj pairs |
+| Model Playground | Source-transparent catalog with separate upstream/converter attribution, declared versus measured capabilities, license and quality gates, pinned sources, and explicit not-downloaded/downloading/verifying/installed/loaded/mismatch states |
+| Local gallery search | Real paired CLIP ONNX image/text inference, app-private incremental vector index, permission-aware MediaStore access, local thumbnails, typed failures, and reproducible Oxford-Pets 37/370 emulator evidence |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
 | TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, MobileCore localhost speed calls, signed result checks, Supabase-ready shared leaderboard, local fallback entries, and custom board JSON flow |

@@ -27,6 +27,8 @@ class GallerySearchPresenterTest {
         assertEquals(listOf("a", "b"), ui.results.map { it.mediaId })
         assertEquals(listOf(1, 2), ui.results.map { it.rank })
         assertEquals("CLIP 直出", ui.results[0].sourceLabel)
+        assertTrue(ui.results[0].sourceDetail.contains("未应用校准阈值"))
+        assertTrue(ui.results[0].scoreLabel.startsWith("余弦 "))
         assertEquals("G2D 复核", ui.results[1].sourceLabel)
         assertTrue(ui.results[1].sourceDetail.contains("候选集"))
         assertEquals("Top-2 结果", ui.resultTitle)
@@ -64,9 +66,9 @@ class GallerySearchPresenterTest {
         val ui = GallerySearchPresenter.present(state)
 
         assertTrue(ui.showNoMatch)
-        assertTrue(ui.resultMessage.contains("没有找到"))
-        assertTrue(ui.privacyLabel.contains("本机"))
-        assertTrue(ui.privacyLabel.contains("不上传"))
+        assertTrue(ui.resultMessage.contains("没有返回"))
+        assertTrue(ui.privacyLabel.startsWith("MobileCore 不上传"))
+        assertTrue(ui.privacyLabel.contains("照片、查询或索引"))
         assertFalse(ui.isSearching)
     }
 
@@ -94,6 +96,34 @@ class GallerySearchPresenterTest {
         assertTrue(ui.queryEnabled)
         assertTrue(ui.searchEnabled)
         assertTrue(ui.modelStatus.detail.contains("G2D 复核未启用"))
+        assertFalse(ui.searchHint.contains("文字"))
+        assertEquals(GalleryStatusAction.RETRY_INDEX, ui.indexStatus.action)
+        assertEquals(GalleryStatusAction.CLEAR_INDEX, ui.indexStatus.secondaryAction)
+        assertEquals(GalleryStatusAction.RELEASE_MODELS, ui.modelStatus.action)
+        assertTrue(ui.modelStatus.detail.contains("身份未验证"))
+        assertTrue(ui.modelStatus.eyebrow.contains("身份未验证"))
+    }
+
+    @Test
+    fun `verified clip identity is preserved while limited access offers system reselection`() {
+        val state = GallerySearchState(
+            index = GalleryIndexState.Ready(12),
+            models = GalleryModelState.Ready(
+                clipImageEncoder = "image.onnx",
+                clipTextEncoder = "text.onnx",
+                modelId = "onnx-community/clip-vit-base-patch16-ONNX",
+                identityVerified = true,
+            ),
+            limitedPhotoAccess = true,
+        )
+
+        val ui = GallerySearchPresenter.present(state)
+
+        assertTrue(ui.modelStatus.detail.contains("身份已验证"))
+        assertTrue(ui.modelStatus.eyebrow.contains("身份已验证"))
+        assertTrue(ui.modelStatus.detail.contains("onnx-community/clip-vit-base-patch16-ONNX"))
+        assertEquals(GalleryStatusAction.SELECT_MORE_PHOTOS, ui.indexStatus.action)
+        assertEquals("选择更多并更新索引", ui.indexStatus.actionLabel)
     }
 
     private fun readyState(query: String): GallerySearchState = GallerySearchState(

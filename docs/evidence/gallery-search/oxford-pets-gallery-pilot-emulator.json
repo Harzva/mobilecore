@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.1",
+  "status": "pass",
+  "task": "text_to_image_retrieval",
+  "dataset": "Oxford-IIIT Pet official test.txt",
+  "scale": "pilot",
+  "sample_count": 370,
+  "query_count": 37,
+  "retrieval_depth": 100,
+  "selection_sha256": "2a6c15e485b87b454117886340acc490eec0841901517505d4b3652ef4a429c4",
+  "app": {
+    "application_id": "com.mobilecore.app",
+    "version_name": "0.1.4-rc9",
+    "version_code": 13
+  },
+  "model": {
+    "id": "onnx-community/clip-vit-base-patch16-ONNX",
+    "combined_artifact_sha256": "047ea6bcdda8b9f5b8fe9c04aa86106ef32f58731831d847eaee7dfc1f3b7046",
+    "image_encoder": "openai-clip-vit-b16-image.onnx",
+    "text_encoder": "openai-clip-vit-b16-text.onnx",
+    "embedding_dimension": 512,
+    "identity_verified": true
+  },
+  "runtime": {
+    "name": "ONNX Runtime Android",
+    "version": "1.18.0",
+    "execution_provider": "CPUExecutionProvider",
+    "provider_configuration": "default session options; no accelerator EP registered",
+    "available_providers": [
+      "CPU",
+      "NNAPI",
+      "XNNPACK"
+    ]
+  },
+  "index": {
+    "encoded_count": 370,
+    "reused_count": 0,
+    "indexing_ms": 95060
+  },
+  "metrics": {
+    "recall_at_1": 0.8108108108108109,
+    "recall_at_5": 1,
+    "mrr_at_100": 0.8873873873873872,
+    "search_ms": 3431
+  },
+  "quality_sanity": {
+    "passed": true,
+    "failure_codes": [],
+    "random_recall_at_1_baseline": 0.027027027027027004,
+    "required_recall_at_1_exclusive": 0.05405405405405401,
+    "top1_distinct_count": 34,
+    "required_top1_distinct_count": 10,
+    "top1_max_share": 0.05405405405405406,
+    "allowed_top1_max_share": 0.25
+  },
+  "environment": {
+    "class": "android_emulator",
+    "physical_device_claim": false,
+    "api_level": 36,
+    "abi": "arm64-v8a",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64",
+    "brand": "google",
+    "device": "emu64a",
+    "product": "sdk_gphone64_arm64",
+    "hardware": "ranchu",
+    "build_fingerprint": "google\/sdk_gphone64_arm64\/emu64a:16\/BE2A.250530.026.F3\/13894323:userdebug\/dev-keys"
+  },
+  "privacy": {
+    "raw_images_persisted_by_index": false,
+    "queries_persisted": false,
+    "network_required_during_inference": false
+  },
+  "total_ms": 98599
+}

@@ -112,6 +112,9 @@ object RuntimeBridge {
             nativeBackendInfo()
         }
 
+    internal fun roundTripUtf8ForTest(value: String): String =
+        callNative(defaultValue = "") { nativeRoundTripUtf8ForTest(value) }
+
     private fun callNative(defaultValue: String, block: () -> String): String {
         return if (libraryReady) {
             runCatching(block).getOrElse {
@@ -141,4 +144,5 @@ object RuntimeBridge {
     private external fun nativeCancel()
     private external fun nativeUnload()
     private external fun nativeBackendInfo(): String
+    private external fun nativeRoundTripUtf8ForTest(value: String): String
 }

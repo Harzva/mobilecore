@@ -2,7 +2,7 @@
   "schema_version": 1,
   "catalog_id": "mobile-model-playground-v1",
   "source_repository": "https://github.com/Harzva/mobile-model-playground",
-  "registry_digest_sha256": "183e3451d9bb1ba68190ac28f3f52d9789d10e509ada297efc54ab339a6358a3",
+  "registry_digest_sha256": "9e8731b8741056d77258a6ee592f43d8f8f47ad2f7b08c4ecb7108b5aefa0f58",
   "entries": [
     {
       "id": "qwen2.5-0.5b-instruct-q4-k-m-official",
@@ -83,7 +83,7 @@
       "origin_label": "Harzva 转换",
       "state": "EMULATOR_CONTRACT_CHECKED",
       "validation_label": "模拟器实测",
-      "summary": "Harzva 从固定上游 revision 转换并发布到 Hugging Face 与 GitCode；当前 MobileCore 提供固定来源入口，应用内校验安装器仍待接入。",
+      "summary": "Harzva 从固定上游 revision 转换并发布到 Hugging Face 与 GitCode；Hugging Face 固定 revision 已支持 MobileCore 应用内空间预检、断点续传、bytes/SHA-256 校验与原子安装，GitCode LFS 仍非直装来源。",
       "parameter_label": "0.6B",
       "quantization_label": "Q4_K_M",
       "featured": true,

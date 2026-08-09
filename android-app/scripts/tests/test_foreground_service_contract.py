@@ -22,10 +22,11 @@ class ForegroundServiceContractTest(unittest.TestCase):
         )[0]
 
         self.assertIn("promoteToForeground(", on_start)
-        self.assertIn("backend.loadModel(", on_start)
+        self.assertIn("server.loadModelFromService(", on_start)
+        self.assertNotIn("backend.loadModel(", on_start)
         self.assertLess(
             on_start.index("promoteToForeground("),
-            on_start.index("backend.loadModel("),
+            on_start.index("server.loadModelFromService("),
         )
         self.assertIn("ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC", source)
 

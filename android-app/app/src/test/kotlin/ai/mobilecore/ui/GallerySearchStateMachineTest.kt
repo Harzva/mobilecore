@@ -46,6 +46,69 @@ class GallerySearchStateMachineTest {
     }
 
     @Test
+    fun `restart distinguishes granted access from a validated persisted index`() {
+        var state = GallerySearchStateMachine.reduce(
+            GallerySearchState(),
+            GallerySearchEvent.AccessAvailable(persistedIndexDetected = true),
+        )
+        assertEquals(GalleryIndexState.AccessGranted(true), state.index)
+        assertFalse(state.canSearch)
+
+        state = GallerySearchStateMachine.reduce(state, GallerySearchEvent.IndexRestored(37, 12_000L))
+        assertEquals(GalleryIndexState.Ready(37, 12_000L), state.index)
+
+        state = GallerySearchStateMachine.reduce(state, GallerySearchEvent.IndexCleared)
+        assertEquals(GalleryIndexState.AccessGranted(false), state.index)
+        assertFalse(state.canSearch)
+    }
+
+    @Test
+    fun `index progress and completion preserve skipped media count`() {
+        var state = GallerySearchStateMachine.reduce(GallerySearchState(), GallerySearchEvent.AccessGranted)
+        state = GallerySearchStateMachine.reduce(state, GallerySearchEvent.ScanCompleted(10))
+        state = GallerySearchStateMachine.reduce(state, GallerySearchEvent.IndexProgress(7, 10, skippedCount = 2))
+        assertEquals(GalleryIndexState.Indexing(7, 10, 2), state.index)
+
+        state = GallerySearchStateMachine.reduce(
+            state,
+            GallerySearchEvent.IndexCompleted(8, 15_000L, skippedCount = 2),
+        )
+        assertEquals(GalleryIndexState.Ready(8, 15_000L, 2), state.index)
+        assertTrue(GallerySearchPresenter.present(state).indexStatus.detail.contains("跳过 2 张"))
+    }
+
+    @Test
+    fun `released clip memory preserves index readiness but blocks search`() {
+        val ready = readyState("小狗")
+        val released = GallerySearchStateMachine.reduce(
+            ready,
+            GallerySearchEvent.ModelsReleased("为 GGUF 释放内存"),
+        )
+
+        assertEquals(GalleryIndexState.Ready(100), released.index)
+        assertTrue(released.models is GalleryModelState.Released)
+        assertFalse(released.canSearch)
+        assertEquals(
+            GalleryStatusAction.PREPARE_MODELS,
+            GallerySearchPresenter.present(released).modelStatus.action,
+        )
+    }
+
+    @Test
+    fun `photo access scope is explicit and revoked access clears limited state`() {
+        var state = GallerySearchStateMachine.reduce(
+            GallerySearchState(),
+            GallerySearchEvent.PhotoAccessScopeChanged(limited = true),
+        )
+        assertTrue(state.limitedPhotoAccess)
+
+        state = GallerySearchStateMachine.reduce(state, GallerySearchEvent.AccessRevoked)
+
+        assertFalse(state.limitedPhotoAccess)
+        assertEquals(GalleryIndexState.PermissionRequired, state.index)
+    }
+
+    @Test
     fun `model progress is clamped and g2d readiness is visible`() {
         var state = GallerySearchState()
         state = GallerySearchStateMachine.reduce(
@@ -67,6 +130,23 @@ class GallerySearchStateMachineTest {
         assertTrue(ui.modelStatus.isSuccess)
         assertTrue(ui.modelStatus.title.contains("G2D"))
         assertTrue(ui.modelStatus.detail.contains("Qwen3.5-0.8B"))
+    }
+
+    @Test
+    fun `model ready event retains audited identity instead of inferring it from filenames`() {
+        val state = GallerySearchStateMachine.reduce(
+            GallerySearchState(),
+            GallerySearchEvent.ModelsReady(
+                clipImageEncoder = "expected-name.onnx",
+                clipTextEncoder = "expected-name-text.onnx",
+                modelId = "audited/model",
+                identityVerified = true,
+            ),
+        )
+
+        val ready = state.models as GalleryModelState.Ready
+        assertEquals("audited/model", ready.modelId)
+        assertTrue(ready.identityVerified)
     }
 
     @Test

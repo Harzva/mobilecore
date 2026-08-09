@@ -5,6 +5,7 @@ import ai.mobilecore.runtime.BenchmarkLeaderboardStore
 import ai.mobilecore.runtime.ChatOptions
 import ai.mobilecore.runtime.DeviceRecommendation
 import ai.mobilecore.runtime.LoadOptions
+import ai.mobilecore.runtime.LoadResult
 import ai.mobilecore.runtime.ModelBenchmark
 import ai.mobilecore.runtime.ModelBenchmarkStore
 import ai.mobilecore.runtime.DeviceProbe
@@ -18,6 +19,8 @@ import ai.mobilecore.runtime.SharedLeaderboardClient
 import ai.mobilecore.runtime.SharedLeaderboardConfigSource
 import ai.mobilecore.runtime.VisionModelManager
 import ai.mobilecore.runtime.VisionRuntime
+import ai.mobilecore.playground.PlaygroundInstallPhase
+import ai.mobilecore.playground.PlaygroundInstallerRegistry
 import android.content.Context
 import android.util.Log
 import fi.iki.elonen.NanoHTTPD
@@ -46,7 +49,7 @@ class LocalApiServer(
     private val requestsCompleted = AtomicLong(0)
     private val inferenceCancelRequests = AtomicLong(0)
     private val inferenceBusyRejections = AtomicLong(0)
-    private val inferenceActive = AtomicBoolean(false)
+    private val runtimeOwnership = RuntimeOwnershipGate()
     private val decodeTokensPerSecondTotal = DoubleAdder()
     private val deviceProbe = DeviceProbe(context.applicationContext)
     private val scoringConfigSource = RecommendationScoringConfigSource(context.applicationContext)
@@ -177,6 +180,11 @@ class LocalApiServer(
                 else withRuntimeOwnership(session) { omniResult(omniController.uninstall()) }
             }
 
+            isPlaygroundUninstallRoute(session) && (method == Method.POST || method == Method.DELETE) -> {
+                if (!hasAuth(session)) unauthorized()
+                else withRuntimeOwnership(session) { onPlaygroundUninstall(session) }
+            }
+
             else -> newFixedLengthResponse(
                 Response.Status.NOT_FOUND,
                 "application/json",
@@ -276,6 +284,9 @@ class LocalApiServer(
     private fun isOmniUninstallRoute(session: IHTTPSession): Boolean =
         session.uri == "/mobilecore/omni/uninstall"
 
+    private fun isPlaygroundUninstallRoute(session: IHTTPSession): Boolean =
+        session.uri == "/mobilecore/playground/uninstall"
+
     private fun hasAuth(session: IHTTPSession): Boolean {
         val headerValue = session.headers["authorization"] ?: session.headers["Authorization"] ?: return false
         return headerValue == "Bearer $apiKey"
@@ -291,7 +302,12 @@ class LocalApiServer(
                 "request exceeds the configured size limit",
             )
         }
-        val body = parseBody(session)
+        val body = try {
+            parseBody(session)
+        } catch (error: ApiRequestException) {
+            requestsFailed.incrementAndGet()
+            return apiError(error.failureCode, error.publicMessage)
+        }
         if (body.toByteArray(Charsets.UTF_8).size.toLong() > MAX_CHAT_REQUEST_BYTES) {
             requestsFailed.incrementAndGet()
             return apiError(
@@ -299,7 +315,7 @@ class LocalApiServer(
                 "request exceeds the configured size limit",
             )
         }
-        if (!inferenceActive.compareAndSet(false, true)) {
+        if (!runtimeOwnership.tryAcquire()) {
             requestsFailed.incrementAndGet()
             inferenceBusyRejections.incrementAndGet()
             return apiError(
@@ -406,7 +422,7 @@ class LocalApiServer(
             Log.e(logTag, "chat_failed code=invalid_request type=${e.javaClass.simpleName}")
             apiError(ApiFailureCode.INVALID_REQUEST, "invalid request")
         } finally {
-            inferenceActive.set(false)
+            runtimeOwnership.release()
         }
     }
 
@@ -550,6 +566,81 @@ class LocalApiServer(
         }
     }
 
+    /**
+     * The runtime identity check, optional unload, and file removal share the same ownership gate
+     * as every API model load. This closes the health-check/delete TOCTOU window.
+     */
+    private fun onPlaygroundUninstall(session: IHTTPSession): Response {
+        return try {
+            val request = JSONObject(parseBody(session))
+            val modelId = request.optString("model_id", "").trim()
+            val installer = PlaygroundInstallerRegistry.byModelId(modelId)
+                ?: return apiError(ApiFailureCode.ARTIFACT_MISSING, "managed model is not available")
+            val activeProjector = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
+            val activeMainPath = backend.activeModelPath()
+            if (backend.isModelLoaded() && activeMainPath.isNullOrBlank()) {
+                return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "runtime artifact identity is unavailable")
+            }
+            if (
+                backend.isModelLoaded() &&
+                installer.hasManagedProjector() &&
+                activeProjector?.projectorId != null &&
+                activeProjector.projectorPath.isNullOrBlank()
+            ) {
+                return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "runtime projector identity is unavailable")
+            }
+            val usesManagedArtifact = installer.managesArtifactPath(activeMainPath) ||
+                installer.managesArtifactPath(activeProjector?.projectorPath)
+            if (usesManagedArtifact) {
+                val unloaded = backend.unloadModel()
+                val projectorStillLoaded = (backend as? MultimodalRuntimeBackend)
+                    ?.multimodalStatus()
+                    ?.projectorPath
+                    ?.let(installer::managesArtifactPath) == true
+                if (!unloaded || backend.isModelLoaded() || projectorStillLoaded) {
+                    return apiError(ApiFailureCode.MODEL_LOAD_FAILED, "managed runtime could not be confirmed unloaded")
+                }
+            }
+
+            val snapshot = installer.uninstall(activeModel = false)
+            if (snapshot.phase != PlaygroundInstallPhase.UNINSTALLED) {
+                return newFixedLengthResponse(
+                    Response.Status.BAD_REQUEST,
+                    "application/json",
+                    JSONObject().apply {
+                        put("error", JSONObject().apply {
+                            put("message", "managed model uninstall did not complete")
+                            put("type", "mobilecore_artifact_error")
+                            put("code", snapshot.failure?.code?.wireValue ?: "uninstall_failed")
+                        })
+                    }.toString(2),
+                )
+            }
+            okResponse(
+                JSONObject().apply {
+                    put("ok", true)
+                    put("model_id", snapshot.modelId)
+                    put("phase", snapshot.phase.name.lowercase())
+                    put("model_loaded", backend.isModelLoaded())
+                }.toString(2),
+            )
+        } catch (_: Exception) {
+            apiError(ApiFailureCode.INVALID_REQUEST, "invalid uninstall request")
+        }
+    }
+
+    /** Service-intent loads participate in the same gate as localhost loads and uninstalls. */
+    fun loadModelFromService(modelFile: File, options: LoadOptions = LoadOptions()): LoadResult {
+        if (!runtimeOwnership.tryAcquire()) {
+            return LoadResult(false, "runtime-busy", 0L, 0L)
+        }
+        return try {
+            modelManager.loadModelFile(modelFile, options)
+        } finally {
+            runtimeOwnership.release()
+        }
+    }
+
     private fun onOmniInstall(session: IHTTPSession): Response {
         return runCatching {
             val body = parseBody(session)
@@ -571,6 +662,10 @@ class LocalApiServer(
     }
 
     private fun parseBody(session: IHTTPSession): String {
+        val contentType = session.headers["content-type"] ?: session.headers["Content-Type"]
+        if (Utf8JsonBody.handles(contentType)) {
+            return Utf8JsonBody.read(session, MAX_CHAT_REQUEST_BYTES)
+        }
         val files = HashMap<String, String>()
         return try {
             session.parseBody(files)
@@ -959,14 +1054,14 @@ class LocalApiServer(
         session: IHTTPSession? = null,
         block: () -> Response,
     ): Response {
-        if (!inferenceActive.compareAndSet(false, true)) {
+        if (!runtimeOwnership.tryAcquire()) {
             session?.let(::parseBody)
             return runtimeBusy()
         }
         return try {
             block()
         } finally {
-            inferenceActive.set(false)
+            runtimeOwnership.release()
         }
     }
 
@@ -987,5 +1082,16 @@ class LocalApiServer(
     private companion object {
         const val MAX_CHAT_REQUEST_BYTES = 36L * 1024L * 1024L
         const val MAX_CONTROL_REQUEST_BYTES = 32 * 1024
+    }
+}
+
+/** One process-wide server gate shared by inference, service loads, and destructive lifecycle work. */
+internal class RuntimeOwnershipGate {
+    private val owned = AtomicBoolean(false)
+
+    fun tryAcquire(): Boolean = owned.compareAndSet(false, true)
+
+    fun release() {
+        check(owned.compareAndSet(true, false)) { "runtime ownership was not held" }
     }
 }

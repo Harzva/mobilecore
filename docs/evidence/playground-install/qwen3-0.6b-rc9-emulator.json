@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "status": "pass",
+  "task": "trusted_playground_install_load_infer_uninstall",
+  "app": {
+    "application_id": "com.mobilecore.app",
+    "version_name": "0.1.4-rc9",
+    "version_code": 13
+  },
+  "environment": {
+    "class": "android_emulator",
+    "physical_device_claim": false,
+    "api_level": 36,
+    "abi": "arm64-v8a",
+    "manufacturer": "Google",
+    "model": "sdk_gphone64_arm64"
+  },
+  "artifact": {
+    "playground_model_id": "qwen3-0.6b-q4-k-m",
+    "file_name": "qwen3-0.6b-q4_k_m.gguf",
+    "source_repository": "Harzva/mobilecore-qwen3-0.6b-gguf",
+    "source_provider": "huggingface",
+    "source_revision": "00b8b574c0cba5df1aa04971f179a7d29d828910",
+    "expected_bytes": 484220160,
+    "sha256": "18ea1f301079bba6391ab6d455c0c8565fd5a3214075eb2cd9daf351dedc719b",
+    "conversion_publisher": "Harzva",
+    "license": "Apache-2.0"
+  },
+  "transfer_boundary": {
+    "emulator_network_download_completed": false,
+    "validation_method": "complete resumable .part seeded through ADB, then processed only by the production installer",
+    "reason": "The emulator network path could not reach the pinned Hugging Face artifact during this run.",
+    "anonymous_public_endpoint_verified_elsewhere": true,
+    "playground_pipeline_run": "https://github.com/Harzva/mobile-model-playground/actions/runs/31315686773"
+  },
+  "installer": {
+    "storage_preflight": "pass",
+    "resumable_part_recognized": true,
+    "exact_byte_count_verified": true,
+    "full_sha256_verified": true,
+    "same_directory_atomic_install": true,
+    "trusted_health_identity": true,
+    "observed_terminal_states": [
+      "installed_verified",
+      "loaded",
+      "uninstalled"
+    ]
+  },
+  "runtime": {
+    "name": "llama.cpp",
+    "backend": "cpu",
+    "model_loaded": true,
+    "active_model": "qwen3-0.6b-q4_k_m",
+    "health_digest_verified": true,
+    "text_input": true,
+    "text_output": true,
+    "image_input": false,
+    "audio_input": false,
+    "video_input": false,
+    "audio_output": false
+  },
+  "unicode_sanity": {
+    "jni_utf8_instrumented_test": "pass",
+    "real_qwen_chinese_emoji_prompt": "pass",
+    "replacement_character_count": 0,
+    "first_token_ms": 740,
+    "decode_tokens_per_second": 48.6692,
+    "total_ms": 3367,
+    "reported_memory_peak_mb": 456
+  },
+  "uninstall": {
+    "runtime_ownership_gate": "pass",
+    "busy_during_concurrent_load_rejected": true,
+    "unload_confirmed_before_delete": true,
+    "remaining_managed_files": 0,
+    "model_loaded_after_uninstall": false
+  }
+}

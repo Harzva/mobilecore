@@ -29,9 +29,28 @@ import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.g2d.G2dBranchTool
 import ai.mobilecore.g2d.OxfordPetsG2dRunner
 import ai.mobilecore.g2d.OxfordPetsRunScale
+import ai.mobilecore.gallery.search.AndroidGallerySearchHost
+import ai.mobilecore.gallery.search.AndroidGallerySearchHostResult
+import ai.mobilecore.gallery.search.GalleryCancellationToken
+import ai.mobilecore.gallery.search.GalleryClipArtifactSet
+import ai.mobilecore.gallery.search.GalleryIndexOutcome
+import ai.mobilecore.gallery.search.GalleryPersistedIndexStatus
+import ai.mobilecore.gallery.search.GalleryPhotoSelection
+import ai.mobilecore.gallery.search.GalleryQueryOutcome
+import ai.mobilecore.gallery.search.GallerySearchFailure
+import ai.mobilecore.gallery.search.GallerySearchFailureCode
+import ai.mobilecore.gallery.search.ClipImageSampling
+import ai.mobilecore.gallery.search.GalleryRuntimeReleaseBarrier
 import ai.mobilecore.playground.PlaygroundArtifactOrigin
+import ai.mobilecore.playground.PlaygroundArtifactInstaller
 import ai.mobilecore.playground.PlaygroundCatalogEntry
 import ai.mobilecore.playground.PlaygroundCatalogRepository
+import ai.mobilecore.playground.PlaygroundInstallPhase
+import ai.mobilecore.playground.PlaygroundInstallerRegistry
+import ai.mobilecore.playground.PlaygroundRuntimeCandidate
+import ai.mobilecore.playground.PlaygroundRuntimeTruthResolver
+import ai.mobilecore.playground.PlaygroundManagedArtifactPolicy
+import ai.mobilecore.playground.AtomicGgufImport
 import ai.mobilecore.service.MobileCoreService
 import ai.mobilecore.ui.BenchmarkLiveSnapshot
 import ai.mobilecore.ui.BenchmarkShareCardRenderer
@@ -42,6 +61,9 @@ import ai.mobilecore.ui.GallerySearchPresenter
 import ai.mobilecore.ui.GallerySearchScreen
 import ai.mobilecore.ui.GallerySearchState
 import ai.mobilecore.ui.GallerySearchStateMachine
+import ai.mobilecore.ui.GallerySearchResult
+import ai.mobilecore.ui.GalleryThumbnailBinder
+import ai.mobilecore.ui.GalleryResultSource
 import ai.mobilecore.ui.G2dValidationCallbacks
 import ai.mobilecore.ui.G2dValidationExperiment
 import ai.mobilecore.ui.G2dValidationInput
@@ -80,6 +102,7 @@ import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -87,7 +110,11 @@ import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapRegionDecoder
 import android.graphics.Typeface
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.net.Uri
@@ -95,11 +122,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
 import android.util.TypedValue
+import android.util.Size
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -107,6 +136,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.CheckBox
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -132,7 +162,13 @@ import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -173,6 +209,24 @@ class MainActivity : Activity() {
     private var selectingComparisonBaseline = false
     private var selectedThemeMode = TuiMaThemeMode.SYSTEM
     private var gallerySearchState = GallerySearchState()
+    private val galleryWorker: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "mobilecore-gallery-search").apply { isDaemon = true }
+    }
+    private val galleryThumbnailWorker: ExecutorService = Executors.newFixedThreadPool(2) { runnable ->
+        Thread(runnable, "mobilecore-gallery-thumbnail").apply { isDaemon = true }
+    }
+    private val galleryHostLock = Any()
+    @Volatile private var gallerySearchHost: AndroidGallerySearchHost? = null
+    @Volatile private var galleryHostOpenInFlight = false
+    @Volatile private var galleryIndexRequestedAfterHostOpen = false
+    @Volatile private var galleryRuntimeGeneration = 0L
+    @Volatile private var galleryIndexOperationGeneration = 0L
+    @Volatile private var galleryIndexCancellation: GalleryCancellationToken? = null
+    @Volatile private var galleryLastIndexFailureCode: GallerySearchFailureCode? = null
+    @Volatile private var runtimeReportsLoadedModel = false
+    @Volatile private var runtimeModelStateRefreshInFlight = false
+    private val runtimeModelStateCompletionCallbacks = mutableListOf<() -> Unit>()
+    private val runtimeModelStateResultCallbacks = mutableListOf<(Boolean) -> Unit>()
     private var g2dValidationInput = G2dValidationInput(
         datasetName = "Oxford-Pets（官方 test.txt）",
         targetSampleCount = 3_669,
@@ -189,6 +243,7 @@ class MainActivity : Activity() {
     private val importModelRequestCode = 1002
     private val pickVisionImageRequestCode = 1003
     private val importVisionModelRequestCode = 1004
+    private val galleryPermissionRequestCode = 1005
     private var pendingAfterNotificationPermission: (() -> Unit)? = null
     private val providerStateByProvider = mutableMapOf<String, ModelDownloadState>()
     private val providerTitleByProvider = mutableMapOf<String, TextView>()
@@ -219,23 +274,38 @@ class MainActivity : Activity() {
             val modelPath = intent.getStringExtra(ModelLoadStatusContract.EXTRA_MODEL_PATH) ?: return
             when (intent.getStringExtra(ModelLoadStatusContract.EXTRA_STATE)) {
                 ModelLoadStatusContract.STATE_LOADING -> {
-                    pendingModelPath = modelPath
+                    val requestedPath = canonicalModelPath(modelPath)
+                    if (activeModelPath != requestedPath) {
+                        activeModelPath = null
+                        runtimeReportsLoadedModel = false
+                        reconcilePlaygroundRuntimeTruth(null)
+                    }
+                    pendingModelPath = requestedPath
                     modelLoadFailurePath = null
                     modelLoadFailureMessage = null
+                    playgroundInstallerForModelPath(modelPath)?.markLoading()
                     updateStatus("正在加载模型")
                 }
                 ModelLoadStatusContract.STATE_LOADED -> {
-                    activeModelPath = modelPath
+                    runtimeReportsLoadedModel = true
+                    activeModelPath = canonicalModelPath(modelPath)
                     pendingModelPath = null
                     modelLoadFailurePath = null
                     modelLoadFailureMessage = null
+                    reconcilePlaygroundRuntimeTruth(activeModelPath)
                     updateStatus("模型已加载")
                 }
                 ModelLoadStatusContract.STATE_FAILED -> {
-                    if (activeModelPath == modelPath) activeModelPath = null
                     pendingModelPath = null
                     modelLoadFailurePath = modelPath
                     modelLoadFailureMessage = intent.getStringExtra(ModelLoadStatusContract.EXTRA_MESSAGE)
+                    playgroundInstallerForModelPath(modelPath)?.markLoadFailed()
+                    // Loading B may have released A before B failed. Restore an active artifact only
+                    // after the runtime health contract confirms its exact identity.
+                    activeModelPath = null
+                    runtimeReportsLoadedModel = false
+                    reconcilePlaygroundRuntimeTruth(null)
+                    refreshRuntimeModelState()
                     updateStatus("模型加载失败")
                 }
             }
@@ -348,6 +418,14 @@ class MainActivity : Activity() {
         progressHandler.removeCallbacks(omniStatusPollRunnable)
         providerStateByProvider.values.forEach { it.cancelRequested = true }
         activeDownloadThreads.values.forEach { it.interrupt() }
+        if (isFinishing) PlaygroundInstallerRegistry.values().forEach(PlaygroundArtifactInstaller::cancel)
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = null
+        releaseGallerySearchRuntime(
+            "页面已关闭，正在释放 CLIP 会话；模型文件和本机索引仍保留。",
+        )
+        galleryWorker.shutdown()
+        galleryThumbnailWorker.shutdownNow()
         super.onDestroy()
     }
 
@@ -365,6 +443,12 @@ class MainActivity : Activity() {
     }
 
     override fun onStop() {
+        // Indexing can hold decoded bitmaps and ONNX buffers for minutes. Stop at the Activity
+        // boundary; the coordinator checkpoints completed vectors before returning CANCELLED.
+        galleryIndexCancellation?.cancel()
+        releaseGallerySearchRuntime(
+            "应用进入后台，已释放 CLIP 会话；返回相册搜索时会自动恢复。",
+        )
         if (modelLoadReceiverRegistered) {
             unregisterReceiver(modelLoadStatusReceiver)
             modelLoadReceiverRegistered = false
@@ -380,9 +464,23 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         syncBenchmarkReadiness(render = false)
-        refreshRuntimeModelState()
+        refreshRuntimeModelState {
+            if (currentTab == AppTab.GALLERY) reconcileGalleryLifecycle()
+        }
         refreshRecommendationSnapshot()
         if (currentTab == AppTab.OMNI) refreshOmniLifecycleStatus()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val shouldReleaseClip = level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN ||
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+        if (shouldReleaseClip && (gallerySearchHost != null || galleryHostOpenInFlight)) {
+            releaseGallerySearchRuntime(
+                "系统请求回收内存，已释放 CLIP 会话；模型文件和本机索引仍保留。",
+            )
+        }
     }
 
     private fun renderCurrentTab(resetScroll: Boolean = false) {
@@ -432,6 +530,11 @@ class MainActivity : Activity() {
         renderCurrentTab(resetScroll = true)
         if (tab == AppTab.HOME || tab == AppTab.MODELS) {
             refreshRecommendationSnapshot()
+        }
+        if (tab == AppTab.GALLERY) {
+            refreshRuntimeModelState {
+                if (currentTab == AppTab.GALLERY) reconcileGalleryLifecycle()
+            }
         }
         if (tab == AppTab.OMNI) refreshOmniLifecycleStatus()
     }
@@ -548,7 +651,11 @@ class MainActivity : Activity() {
 
     private fun renderGalleryTab(content: LinearLayout) {
         val screen = GallerySearchScreen(this)
-        screen.bind(GallerySearchPresenter.present(gallerySearchState), gallerySearchActions())
+        screen.bind(
+            GallerySearchPresenter.present(gallerySearchState),
+            gallerySearchActions(),
+            galleryThumbnailBinder(),
+        )
         content.addView(screen)
     }
 
@@ -704,23 +811,702 @@ class MainActivity : Activity() {
     }
 
     private fun gallerySearchActions() = object : GallerySearchActions {
-        override fun requestGalleryAccess() = showGalleryRuntimePending()
-        override fun scanGrantedMedia() = showGalleryRuntimePending()
-        override fun retryGalleryIndex() = showGalleryRuntimePending()
-        override fun prepareSearchModels() = setTab(AppTab.VISION_MODELS)
-        override fun searchLocalGallery(query: String, topK: Int) = showGalleryRuntimePending()
+        override fun requestGalleryAccess() {
+            if (hasFullGalleryImageAccess() ||
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE && hasGalleryImageAccess())
+            ) {
+                startGalleryIndex()
+            } else {
+                // Android 14's selected-photos grant is deliberately re-requested here so the
+                // system can present its "select more photos" surface.
+                requestPermissions(requiredGalleryPermissions(), galleryPermissionRequestCode)
+            }
+        }
+
+        override fun scanGrantedMedia() = startGalleryIndex()
+
+        override fun retryGalleryIndex() = startGalleryIndex()
+
+        override fun cancelGalleryIndex() {
+            galleryIndexCancellation?.cancel()
+            Toast.makeText(
+                this@MainActivity,
+                "正在取消；已完成的向量会保存供下次续建",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+
+        override fun clearGalleryIndex() = clearPersistedGalleryIndex()
+
+        override fun prepareSearchModels() = prepareGallerySearchHost(indexWhenReady = false)
+
+        override fun releaseSearchModels() {
+            releaseGallerySearchRuntime(
+                "已手动释放 CLIP 会话；模型文件和照片索引仍保留。",
+            )
+        }
+
+        override fun searchLocalGallery(query: String, topK: Int) {
+            if (!hasGalleryImageAccess()) {
+                handleGalleryAccessRevoked(showToast = true)
+                return
+            }
+            runGallerySearch(query, topK)
+        }
+
         override fun updateGalleryQuery(query: String) {
             gallerySearchState = GallerySearchStateMachine.reduce(gallerySearchState, GallerySearchEvent.QueryChanged(query))
         }
+
         override fun clearGallerySearch() {
             gallerySearchState = GallerySearchStateMachine.reduce(gallerySearchState, GallerySearchEvent.ClearSearch)
             renderCurrentTab()
         }
-        override fun openGalleryResult(mediaId: String, contentUri: String) = Unit
+
+        override fun openGalleryResult(mediaId: String, contentUri: String) {
+            if (!hasGalleryImageAccess()) {
+                handleGalleryAccessRevoked(showToast = true)
+                return
+            }
+            val uri = runCatching { Uri.parse(contentUri) }.getOrNull()
+            if (uri?.scheme != "content" || uri.authority.isNullOrBlank()) {
+                Toast.makeText(this@MainActivity, "照片来源已失效", Toast.LENGTH_SHORT).show()
+                return
+            }
+            runCatching {
+                startActivity(Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "image/*")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                })
+            }.onFailure {
+                Toast.makeText(this@MainActivity, "无法打开这张照片", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
-    private fun showGalleryRuntimePending() {
-        Toast.makeText(this, "相册索引与 CLIP 双编码运行时尚待接入", Toast.LENGTH_SHORT).show()
+    private fun requiredGalleryPermissions(): Array<String> = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+        )
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+        )
+        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    private fun hasGalleryImageAccess(): Boolean = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
+                PackageManager.PERMISSION_GRANTED
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) ==
+                PackageManager.PERMISSION_GRANTED
+        else -> ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasFullGalleryImageAccess(): Boolean = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) ==
+                PackageManager.PERMISSION_GRANTED
+        else -> ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasLimitedGalleryImageAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+            !hasFullGalleryImageAccess() &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun galleryIndexDirectory(): File = File(noBackupFilesDir, "gallery-search")
+
+    private fun hasCompleteGalleryClipArtifacts(): Boolean {
+        val directory = internalVisionModelDir()
+        return listOf(
+            GalleryClipArtifactSet.IMAGE_ENCODER_FILE,
+            GalleryClipArtifactSet.TEXT_ENCODER_FILE,
+            "vocab.json",
+            "merges.txt",
+            "tokenizer_config.json",
+        ).all { File(directory, it).isFile }
+    }
+
+    private fun reconcileGalleryLifecycle() {
+        if (!hasGalleryImageAccess()) {
+            handleGalleryAccessRevoked(showToast = false)
+            return
+        }
+        dispatchGalleryEvents(
+            GallerySearchEvent.PhotoAccessScopeChanged(hasLimitedGalleryImageAccess()),
+        )
+        if (gallerySearchState.index is ai.mobilecore.ui.GalleryIndexState.Scanning ||
+            gallerySearchState.index is ai.mobilecore.ui.GalleryIndexState.Indexing
+        ) {
+            return
+        }
+        val host = gallerySearchHost
+        if (host != null) {
+            dispatchGalleryEvents(
+                GallerySearchEvent.ModelsReady(
+                    clipImageEncoder = host.descriptor.imageEncoderName,
+                    clipTextEncoder = host.descriptor.textEncoderName,
+                    modelId = host.descriptor.modelId,
+                    identityVerified = host.descriptor.identityVerified,
+                ),
+            )
+            hydratePersistedGalleryIndex(host)
+            return
+        }
+        dispatchGalleryEvents(
+            GallerySearchEvent.AccessAvailable(
+                AndroidGallerySearchHost.hasPersistedIndex(galleryIndexDirectory()),
+            ),
+        )
+        if (hasCompleteGalleryClipArtifacts()) {
+            prepareGallerySearchHost(indexWhenReady = false)
+        }
+    }
+
+    private fun handleGalleryAccessRevoked(showToast: Boolean) {
+        galleryIndexOperationGeneration += 1L
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = null
+        dispatchGalleryEvents(GallerySearchEvent.AccessRevoked)
+        if (showToast) {
+            Toast.makeText(this, "相册访问已撤销，请重新授权后建立索引", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun galleryRuntimePreflightFailure(): String? {
+        if (runtimeModelStateRefreshInFlight) {
+            return "正在确认本地语言模型状态，请稍后重试。"
+        }
+        if (runtimeReportsLoadedModel || activeModelPath != null || pendingModelPath != null) {
+            return "为避免 CLIP 与 GGUF 同时占用内存，请先卸载或等待本地语言模型。"
+        }
+        val artifacts = listOf(
+            File(internalVisionModelDir(), GalleryClipArtifactSet.IMAGE_ENCODER_FILE),
+            File(internalVisionModelDir(), GalleryClipArtifactSet.TEXT_ENCODER_FILE),
+        ).filter(File::isFile)
+        if (artifacts.size < 2) return null
+        val info = ActivityManager.MemoryInfo()
+        (getSystemService(ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(info)
+        val modelBytes = artifacts.sumOf(File::length)
+        val requiredBytes = modelBytes + 384L * BYTES_PER_MB
+        if (info.lowMemory || info.availMem < requiredBytes) {
+            val needMb = (requiredBytes + BYTES_PER_MB - 1L) / BYTES_PER_MB
+            val availableMb = info.availMem / BYTES_PER_MB
+            return "可用内存不足：CLIP 预计需要约 ${needMb} MB，当前约 ${availableMb} MB。"
+        }
+        return null
+    }
+
+    private fun prepareGallerySearchHost(indexWhenReady: Boolean) {
+        gallerySearchHost?.let { host ->
+            dispatchGalleryEvents(
+                GallerySearchEvent.ModelsReady(
+                    clipImageEncoder = host.descriptor.imageEncoderName,
+                    clipTextEncoder = host.descriptor.textEncoderName,
+                    modelId = host.descriptor.modelId,
+                    identityVerified = host.descriptor.identityVerified,
+                ),
+            )
+            if (indexWhenReady) startGalleryIndexWithHost(host) else hydratePersistedGalleryIndex(host)
+            return
+        }
+        if (waitForPreviousGalleryRuntimeRelease(indexWhenReady)) return
+        galleryRuntimePreflightFailure()?.let { message ->
+            dispatchGalleryEvents(GallerySearchEvent.ModelPreparationFailed(message, retryable = true))
+            return
+        }
+        synchronized(galleryHostLock) {
+            galleryIndexRequestedAfterHostOpen = galleryIndexRequestedAfterHostOpen || indexWhenReady
+            if (galleryHostOpenInFlight) return
+            galleryHostOpenInFlight = true
+        }
+        dispatchGalleryEvents(GallerySearchEvent.ModelPreparationStarted("CLIP 双编码器"))
+        val openingGeneration = galleryRuntimeGeneration
+        galleryWorker.execute {
+            val opened = AndroidGallerySearchHost.open(
+                contentResolver = contentResolver,
+                modelsDirectory = internalVisionModelDir(),
+                tokenizerDirectory = internalVisionModelDir(),
+                indexDirectory = galleryIndexDirectory(),
+            )
+            val shouldIndex = synchronized(galleryHostLock) {
+                galleryHostOpenInFlight = false
+                val requested = galleryIndexRequestedAfterHostOpen
+                galleryIndexRequestedAfterHostOpen = false
+                requested
+            }
+            when (opened) {
+                is AndroidGallerySearchHostResult.Ready -> {
+                    if (isDestroyed || openingGeneration != galleryRuntimeGeneration) {
+                        opened.host.close()
+                        return@execute
+                    }
+                    gallerySearchHost = opened.host
+                    postGalleryEvents(
+                        GallerySearchEvent.ModelsReady(
+                            clipImageEncoder = opened.host.descriptor.imageEncoderName,
+                            clipTextEncoder = opened.host.descriptor.textEncoderName,
+                            modelId = opened.host.descriptor.modelId,
+                            identityVerified = opened.host.descriptor.identityVerified,
+                        ),
+                    )
+                    if (shouldIndex) {
+                        startGalleryIndexWithHost(opened.host, alreadyOnWorker = true)
+                    } else {
+                        hydratePersistedGalleryIndex(opened.host, alreadyOnWorker = true)
+                    }
+                }
+                is AndroidGallerySearchHostResult.Blocked -> {
+                    val message = galleryFailureMessage(opened.failure)
+                    postGalleryEvents(
+                        GallerySearchEvent.ModelPreparationFailed(message, opened.failure.retryable),
+                        *if (shouldIndex) {
+                            arrayOf(GallerySearchEvent.IndexFailed(message, opened.failure.retryable))
+                        } else {
+                            emptyArray()
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun startGalleryIndex() {
+        if (!hasGalleryImageAccess()) {
+            handleGalleryAccessRevoked(showToast = true)
+            return
+        }
+        dispatchGalleryEvents(
+            GallerySearchEvent.PhotoAccessScopeChanged(hasLimitedGalleryImageAccess()),
+        )
+        dispatchGalleryEvents(GallerySearchEvent.AccessGranted)
+        val host = gallerySearchHost
+        if (host == null) {
+            prepareGallerySearchHost(indexWhenReady = true)
+        } else {
+            startGalleryIndexWithHost(host)
+        }
+    }
+
+    private fun startGalleryIndexWithHost(
+        host: AndroidGallerySearchHost,
+        alreadyOnWorker: Boolean = false,
+    ) {
+        galleryIndexOperationGeneration += 1L
+        val token = GalleryCancellationToken()
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = token
+        val clearCorruptIndex = galleryLastIndexFailureCode == GallerySearchFailureCode.INDEX_CORRUPT
+        galleryLastIndexFailureCode = null
+        val task = {
+            if (clearCorruptIndex) host.clearIndex()
+            runGalleryIndexOnWorker(host, token)
+        }
+        if (alreadyOnWorker) task() else galleryWorker.execute { task() }
+    }
+
+    private fun hydratePersistedGalleryIndex(
+        host: AndroidGallerySearchHost,
+        alreadyOnWorker: Boolean = false,
+    ) {
+        val runtimeGeneration = galleryRuntimeGeneration
+        val operationGeneration = galleryIndexOperationGeneration
+        val task = {
+            val status = host.persistedIndexStatus()
+            runOnUiThread {
+                if (isDestroyed ||
+                    host !== gallerySearchHost ||
+                    runtimeGeneration != galleryRuntimeGeneration ||
+                    operationGeneration != galleryIndexOperationGeneration ||
+                    !hasGalleryImageAccess()
+                ) {
+                    return@runOnUiThread
+                }
+                when (status) {
+                    is GalleryPersistedIndexStatus.Ready -> dispatchGalleryEvents(
+                        GallerySearchEvent.IndexRestored(status.indexedCount, status.updatedAtMs),
+                    )
+                    GalleryPersistedIndexStatus.Missing -> dispatchGalleryEvents(
+                        GallerySearchEvent.AccessAvailable(persistedIndexDetected = false),
+                    )
+                    GalleryPersistedIndexStatus.Invalidated -> {
+                        galleryLastIndexFailureCode = GallerySearchFailureCode.MODEL_DIGEST_MISMATCH
+                        dispatchGalleryEvents(
+                            GallerySearchEvent.IndexFailed(
+                                "CLIP 模型已变化，请重新建立本机照片索引。",
+                                retryable = true,
+                            ),
+                        )
+                    }
+                    GalleryPersistedIndexStatus.Corrupt -> {
+                        galleryLastIndexFailureCode = GallerySearchFailureCode.INDEX_CORRUPT
+                        dispatchGalleryEvents(
+                            GallerySearchEvent.IndexFailed(
+                                "本机照片索引损坏，请清除后重新建立。",
+                                retryable = true,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        if (alreadyOnWorker) task() else galleryWorker.execute { task() }
+    }
+
+    private fun clearPersistedGalleryIndex() {
+        galleryIndexOperationGeneration += 1L
+        val operationGeneration = galleryIndexOperationGeneration
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = null
+        galleryWorker.execute {
+            val cleared = runCatching {
+                gallerySearchHost?.clearIndex()
+                    ?: AndroidGallerySearchHost.clearPersistedIndex(galleryIndexDirectory())
+            }.isSuccess
+            runOnUiThread {
+                if (isDestroyed || operationGeneration != galleryIndexOperationGeneration) return@runOnUiThread
+                if (cleared) {
+                    galleryLastIndexFailureCode = null
+                    dispatchGalleryEvents(GallerySearchEvent.IndexCleared)
+                    Toast.makeText(this, "本机照片索引已清除", Toast.LENGTH_SHORT).show()
+                } else {
+                    dispatchGalleryEvents(
+                        GallerySearchEvent.IndexFailed("无法清除本机照片索引，请稍后重试。", retryable = true),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun runGalleryIndexOnWorker(
+        host: AndroidGallerySearchHost,
+        token: GalleryCancellationToken,
+    ) {
+        var scanAnnounced = false
+        var lastProgressAtMs = 0L
+        val outcome = host.buildOrUpdateIndex(
+            selection = GalleryPhotoSelection.MediaStoreImages(),
+            cancellation = token,
+        ) { progress ->
+            if (galleryIndexCancellation !== token) return@buildOrUpdateIndex
+            val now = SystemClock.elapsedRealtime()
+            val shouldRender = !scanAnnounced ||
+                progress.processedCount == progress.totalCount ||
+                now - lastProgressAtMs >= 250L
+            if (!shouldRender) return@buildOrUpdateIndex
+            lastProgressAtMs = now
+            val events = buildList<GallerySearchEvent> {
+                if (!scanAnnounced) {
+                    scanAnnounced = true
+                    add(GallerySearchEvent.ScanProgress(progress.totalCount))
+                    add(GallerySearchEvent.ScanCompleted(progress.totalCount))
+                }
+                add(
+                    GallerySearchEvent.IndexProgress(
+                        progress.processedCount,
+                        progress.totalCount,
+                        progress.skippedCount,
+                    ),
+                )
+            }
+            postGalleryEvents(*events.toTypedArray())
+        }
+        if (galleryIndexCancellation !== token) return
+        galleryIndexCancellation = null
+        when (outcome) {
+            is GalleryIndexOutcome.Completed -> {
+                val prefix = if (scanAnnounced) emptyArray() else arrayOf<GallerySearchEvent>(
+                    GallerySearchEvent.ScanProgress(outcome.stats.discoveredCount),
+                    GallerySearchEvent.ScanCompleted(outcome.stats.discoveredCount),
+                )
+                postGalleryEvents(
+                    *prefix,
+                    GallerySearchEvent.IndexCompleted(
+                        indexedCount = outcome.snapshot.entries.size,
+                        completedAtMs = outcome.snapshot.updatedAtMs,
+                        skippedCount = outcome.stats.skippedCount,
+                    ),
+                )
+            }
+            is GalleryIndexOutcome.Cancelled -> {
+                galleryLastIndexFailureCode = outcome.failure.code
+                postGalleryEvents(
+                    GallerySearchEvent.IndexFailed(
+                        galleryFailureMessage(outcome.failure),
+                        outcome.failure.retryable,
+                    ),
+                )
+            }
+            is GalleryIndexOutcome.Failed -> {
+                galleryLastIndexFailureCode = outcome.failure.code
+                postGalleryEvents(
+                    GallerySearchEvent.IndexFailed(
+                        galleryFailureMessage(outcome.failure),
+                        outcome.failure.retryable,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun runGallerySearch(query: String, topK: Int) {
+        if (!hasGalleryImageAccess()) {
+            handleGalleryAccessRevoked(showToast = true)
+            return
+        }
+        val normalized = query.trim()
+        gallerySearchState = GallerySearchStateMachine.reduce(
+            gallerySearchState,
+            GallerySearchEvent.QueryChanged(normalized),
+        )
+        gallerySearchState = GallerySearchStateMachine.reduce(
+            gallerySearchState,
+            GallerySearchEvent.SearchStarted,
+        )
+        if (currentTab == AppTab.GALLERY) renderCurrentTab()
+        val host = gallerySearchHost
+        if (host == null) {
+            dispatchGalleryEvents(
+                GallerySearchEvent.SearchFailed(normalized, "CLIP 搜索模型尚未就绪。"),
+            )
+            return
+        }
+        galleryWorker.execute {
+            if (!hasGalleryImageAccess()) {
+                postGalleryEvents(GallerySearchEvent.AccessRevoked)
+                return@execute
+            }
+            when (val outcome = host.search(normalized, topK)) {
+                is GalleryQueryOutcome.Results -> {
+                    val results = outcome.hits.mapIndexed { index, hit ->
+                        val displayName = resolveGalleryDisplayName(hit.photo.contentUri)
+                        val format = hit.photo.mimeType.substringAfter('/', "image").uppercase(Locale.US)
+                        GallerySearchResult(
+                            mediaId = hit.photo.mediaId,
+                            contentUri = hit.photo.contentUri,
+                            title = displayName ?: "本地照片 ${index + 1}",
+                            subtitle = "本机索引 · $format",
+                            similarity = hit.similarity,
+                            source = GalleryResultSource.CLIP_DIRECT,
+                        )
+                    }
+                    postGalleryEvents(GallerySearchEvent.SearchCompleted(normalized, results))
+                }
+                is GalleryQueryOutcome.Blocked -> postGalleryEvents(
+                    GallerySearchEvent.SearchFailed(normalized, galleryFailureMessage(outcome.failure)),
+                )
+            }
+        }
+    }
+
+    private fun galleryFailureMessage(failure: GallerySearchFailure): String = when (failure.code) {
+        GallerySearchFailureCode.ACCESS_DENIED -> "相册访问已撤销，请重新授权后建立索引。"
+        GallerySearchFailureCode.IMAGE_ENCODER_UNAVAILABLE ->
+            "缺少 openai-clip-vit-b16-image.onnx，请先导入视觉模型。"
+        GallerySearchFailureCode.TEXT_ENCODER_UNAVAILABLE ->
+            "缺少 openai-clip-vit-b16-text.onnx；固定标签 sidecar 不能用于任意文本搜索。"
+        GallerySearchFailureCode.TEXT_TOKENIZER_UNAVAILABLE ->
+            "缺少 vocab.json、merges.txt 或 tokenizer_config.json。"
+        GallerySearchFailureCode.MODEL_ABI_MISMATCH -> "CLIP 图像/文本编码器或 tokenizer ABI 不兼容。"
+        GallerySearchFailureCode.MODEL_LOAD_FAILED -> "CLIP 无法在当前可用内存预算内加载，请释放其他模型后重试。"
+        GallerySearchFailureCode.MODEL_DIGEST_MISMATCH -> "CLIP 模型已变化，请重新建立本机索引。"
+        GallerySearchFailureCode.INDEX_CORRUPT -> "本机照片索引损坏，请重新建立。"
+        GallerySearchFailureCode.INDEX_MISSING -> "请先为授权照片建立本机索引。"
+        GallerySearchFailureCode.MEDIA_NOT_FOUND -> "部分授权照片已被移动或删除，请重新扫描。"
+        GallerySearchFailureCode.IMAGE_DECODE_FAILED -> "有照片无法安全解码；已保留可续建的索引。"
+        GallerySearchFailureCode.EMBEDDING_DIMENSION_MISMATCH,
+        GallerySearchFailureCode.INVALID_EMBEDDING,
+        -> "CLIP 返回了不兼容的向量，请检查模型配对。"
+        GallerySearchFailureCode.CANCELLED -> "索引已取消；已完成的本机向量会在重试时复用。"
+        GallerySearchFailureCode.UNSUPPORTED_URI -> "只接受系统授权的 content:// 本地照片。"
+        GallerySearchFailureCode.IO_FAILED -> "本机索引写入失败，请检查可用空间后重试。"
+    }
+
+    private fun dispatchGalleryEvents(vararg events: GallerySearchEvent) {
+        if (isDestroyed) return
+        events.forEach { event ->
+            gallerySearchState = GallerySearchStateMachine.reduce(gallerySearchState, event)
+        }
+        if (currentTab == AppTab.GALLERY) renderCurrentTab()
+    }
+
+    private fun postGalleryEvents(vararg events: GallerySearchEvent) {
+        runOnUiThread { dispatchGalleryEvents(*events) }
+    }
+
+    private fun resolveGalleryDisplayName(contentUri: String): String? {
+        val uri = runCatching { Uri.parse(contentUri) }.getOrNull() ?: return null
+        if (uri.scheme != "content" || uri.authority.isNullOrBlank()) return null
+        return runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (!cursor.moveToFirst()) null else {
+                        val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (column < 0) null else cursor.getString(column)?.takeIf(String::isNotBlank)
+                    }
+                }
+        }.getOrNull()
+    }
+
+    private fun galleryThumbnailBinder() = GalleryThumbnailBinder { target, result ->
+        val expectedUri = result.contentUri
+        target.tag = expectedUri
+        runCatching {
+            galleryThumbnailWorker.execute {
+                val bitmap = loadGalleryThumbnail(expectedUri)
+                target.post {
+                    if (target.tag == expectedUri && target.isAttachedToWindow) {
+                        if (bitmap != null) target.setImageBitmap(bitmap)
+                    } else {
+                        bitmap?.recycle()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun loadGalleryThumbnail(contentUri: String): Bitmap? {
+        val uri = runCatching { Uri.parse(contentUri) }.getOrNull() ?: return null
+        if (uri.scheme != "content" || uri.authority.isNullOrBlank()) return null
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentResolver.loadThumbnail(uri, Size(512, 512), null)
+            } else {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    val decoder = BitmapRegionDecoder.newInstance(input, false)
+                        ?: return@use null
+                    try {
+                        val plan = ClipImageSampling.plan(decoder.width, decoder.height, 512)
+                        val options = BitmapFactory.Options().apply {
+                            inSampleSize = plan.inSampleSize
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        val bitmap = decoder.decodeRegion(
+                            Rect(plan.left, plan.top, plan.right, plan.bottom),
+                            options,
+                        ) ?: return@use null
+                        val pixels = bitmap.width.toLong() * bitmap.height.toLong()
+                        if (!ClipImageSampling.withinDecodeBudget(
+                                pixels,
+                                bitmap.allocationByteCount.toLong(),
+                            )
+                        ) {
+                            bitmap.recycle()
+                            null
+                        } else {
+                            bitmap
+                        }
+                    } finally {
+                        decoder.recycle()
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    private fun waitForPreviousGalleryRuntimeRelease(indexWhenReady: Boolean): Boolean {
+        val barriers = GalleryRuntimeReleaseBarrier.pending()
+        if (barriers.isEmpty()) return false
+        synchronized(galleryHostLock) {
+            galleryIndexRequestedAfterHostOpen = galleryIndexRequestedAfterHostOpen || indexWhenReady
+            if (galleryHostOpenInFlight) return true
+            galleryHostOpenInFlight = true
+        }
+        val generation = galleryRuntimeGeneration
+        dispatchGalleryEvents(GallerySearchEvent.ModelPreparationStarted("上一 CLIP 会话释放"))
+        galleryWorker.execute {
+            val released = barriers.all { barrier ->
+                runCatching { barrier.get(30L, TimeUnit.SECONDS) }.isSuccess.also {
+                    GalleryRuntimeReleaseBarrier.clear(barrier)
+                }
+            }
+            val shouldIndex = synchronized(galleryHostLock) {
+                galleryHostOpenInFlight = false
+                val requested = galleryIndexRequestedAfterHostOpen
+                galleryIndexRequestedAfterHostOpen = false
+                requested
+            }
+            runOnUiThread {
+                if (isDestroyed || generation != galleryRuntimeGeneration) return@runOnUiThread
+                if (released) {
+                    prepareGallerySearchHost(shouldIndex)
+                } else {
+                    dispatchGalleryEvents(
+                        GallerySearchEvent.ModelPreparationFailed(
+                            "上一 CLIP 会话未能安全释放；为避免双会话，请完全重启应用后重试。",
+                            retryable = false,
+                        ),
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    private fun releaseGallerySearchRuntime(reason: String): Future<*>? {
+        val hadRuntime = gallerySearchHost != null || galleryHostOpenInFlight
+        val wasIndexing = gallerySearchState.index is ai.mobilecore.ui.GalleryIndexState.Scanning ||
+            gallerySearchState.index is ai.mobilecore.ui.GalleryIndexState.Indexing
+        val hadModelState = gallerySearchState.models is ai.mobilecore.ui.GalleryModelState.Ready ||
+            gallerySearchState.models is ai.mobilecore.ui.GalleryModelState.Preparing
+        if (!hadRuntime && !wasIndexing && !hadModelState) return null
+
+        galleryRuntimeGeneration += 1L
+        galleryIndexOperationGeneration += 1L
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = null
+        synchronized(galleryHostLock) {
+            galleryIndexRequestedAfterHostOpen = false
+        }
+        val previous = gallerySearchHost
+        gallerySearchHost = null
+        val events = buildList<GallerySearchEvent> {
+            add(GallerySearchEvent.ModelsReleased(reason))
+            if (wasIndexing) {
+                add(
+                    GallerySearchEvent.IndexFailed(
+                        "索引已暂停；完成的向量已请求保存，可重新加载模型后续建。",
+                        retryable = true,
+                    ),
+                )
+            }
+        }
+        dispatchGalleryEvents(*events.toTypedArray())
+        val release = runCatching {
+            galleryWorker.submit { previous?.close() }
+        }.getOrNull()
+        release?.let(GalleryRuntimeReleaseBarrier::register)
+        return release
+    }
+
+    private fun invalidateGallerySearchRuntime(reason: String) {
+        val hadRuntime = gallerySearchHost != null || galleryHostOpenInFlight
+        galleryRuntimeGeneration += 1L
+        galleryIndexOperationGeneration += 1L
+        galleryIndexCancellation?.cancel()
+        galleryIndexCancellation = null
+        synchronized(galleryHostLock) {
+            galleryIndexRequestedAfterHostOpen = false
+        }
+        val previous = gallerySearchHost
+        gallerySearchHost = null
+        if (hadRuntime) {
+            runCatching { galleryWorker.submit { previous?.close() } }
+                .getOrNull()
+                ?.let(GalleryRuntimeReleaseBarrier::register)
+        }
+        dispatchGalleryEvents(
+            GallerySearchEvent.ModelPreparationFailed(reason, retryable = true),
+            GallerySearchEvent.IndexFailed("模型发生变化，请重新建立本机照片索引。", retryable = true),
+        )
     }
 
     private fun showVisionPackageRemoveDialog(packageId: String) {
@@ -734,6 +1520,9 @@ class MainActivity : Activity() {
             .setNegativeButton("保留", null)
             .setPositiveButton("移除") { _, _ ->
                 allFiles.filter { it.name in artifactNames }.forEach(File::delete)
+                if (packageId == "clip_retrieval") {
+                    invalidateGallerySearchRuntime("视觉模型包已移除，请重新准备 CLIP 搜索模型。")
+                }
                 renderCurrentTab()
             }
             .show()
@@ -1300,12 +2089,12 @@ class MainActivity : Activity() {
         val catalog = playgroundCatalog
         val entries = catalog?.entries.orEmpty()
         val localNames = availableGgufModels().mapTo(linkedSetOf()) { it.name }
-        val activeName = activeModelPath?.let { File(it).name }
+        val activePath = activeModelPath
         val installedCount = entries.count { entry ->
-            PlaygroundPresenter.present(entry, localNames, activeName).localPhase != PlaygroundLocalPhase.NOT_DOWNLOADED
+            PlaygroundPresenter.present(entry, localNames, activePath).localPhase != PlaygroundLocalPhase.NOT_DOWNLOADED
         }
         val recommendedCount = entries.count { entry ->
-            PlaygroundPresenter.present(entry, localNames, activeName).recommended
+            PlaygroundPresenter.present(entry, localNames, activePath).recommended
         }
         return surfaceCard(Palette.lavender, gradient = true) {
             addView(
@@ -1338,8 +2127,15 @@ class MainActivity : Activity() {
 
     private fun buildPlaygroundEntryCard(entry: PlaygroundCatalogEntry): View {
         val localNames = availableGgufModels().mapTo(linkedSetOf()) { it.name }
-        val activeName = activeModelPath?.let { File(it).name }
-        val model = PlaygroundPresenter.present(entry, localNames, activeName)
+        val activePath = activeModelPath
+        val installer = playgroundInstaller(entry)
+        val model = PlaygroundPresenter.present(
+            entry = entry,
+            localFileNames = localNames,
+            activeModelPath = activePath,
+            managedPrimaryModelPath = installer?.managedPrimaryModelFile()?.absolutePath,
+            installSnapshot = installer?.snapshot(),
+        )
         val accent = playgroundOriginAccent(entry.origin)
         val artifactBytes = entry.artifacts.sumOf { it.sizeBytes }
         val declaredInputs = entry.declaredCapabilities.inputs.joinToString(" / ").ifBlank { "未声明" }
@@ -1400,18 +2196,46 @@ class MainActivity : Activity() {
                 setPadding(dp(2), dp(5), dp(2), 0)
                 maxLines = 2
             })
-            addView(space(10))
-            addView(
-                chipButton(
-                    when {
-                        entry.distribution.mode == "huggingface_model_repo" -> "打开 Hugging Face"
-                        entry.distribution.repositoryUrl == null -> "查看固定来源"
-                        else -> "查看发布仓库"
+            if (model.localPhase == PlaygroundLocalPhase.DOWNLOADING ||
+                model.localPhase == PlaygroundLocalPhase.VERIFYING
+            ) {
+                addView(space(8))
+                addView(
+                    ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        max = 100
+                        progress = model.progressPercent
+                        progressTintList = ColorStateList.valueOf(Palette.mintDark)
+                        progressBackgroundTintList = ColorStateList.valueOf(tint(Palette.muted, 0.16f))
+                        contentDescription = "可信模型安装进度 ${model.progressPercent}%"
                     },
-                    false,
-                ) {
-                    openPlaygroundSource(entry)
-                },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)),
+                )
+            }
+            addView(space(10))
+            if (installer != null) {
+                addView(
+                    pillButton(model.primaryActionLabel, Palette.mintDark, Palette.mint) {
+                        handlePlaygroundPrimaryAction(entry, installer, model.localPhase)
+                    }.apply {
+                        isEnabled = model.primaryActionEnabled
+                        alpha = if (isEnabled) 1f else 0.55f
+                        contentDescription = "${model.title}，${model.primaryActionLabel}"
+                    },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)),
+                )
+                if (model.canUninstall) {
+                    addView(space(7))
+                    addView(
+                        chipButton("卸载模型", false) {
+                            confirmPlaygroundUninstall(entry, installer)
+                        },
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),
+                    )
+                }
+                addView(space(7))
+            }
+            addView(
+                chipButton(playgroundSourceActionLabel(entry), false) { openPlaygroundSource(entry) },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),
             )
             contentDescription = listOf(
@@ -1429,6 +2253,241 @@ class MainActivity : Activity() {
         PlaygroundArtifactOrigin.UPSTREAM -> Palette.blue
         PlaygroundArtifactOrigin.THIRD_PARTY -> Palette.lavender
         PlaygroundArtifactOrigin.RECIPE -> Palette.muted
+    }
+
+    private fun playgroundInstaller(entry: PlaygroundCatalogEntry): PlaygroundArtifactInstaller? {
+        val installer = PlaygroundInstallerRegistry.getOrCreate(applicationContext, entry) ?: return null
+        if (installer.beginStartupVerification()) verifyPlaygroundInstallOnStartup(installer)
+        return installer
+    }
+
+    private fun verifyPlaygroundInstallOnStartup(installer: PlaygroundArtifactInstaller) {
+        val handle = installer.verifyInstalled { snapshot ->
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) {
+                    if (snapshot.phase == PlaygroundInstallPhase.INSTALLED) {
+                        updateStatus("本地模型 SHA-256 复核通过")
+                    } else if (snapshot.phase in setOf(
+                            PlaygroundInstallPhase.VERIFICATION_FAILED,
+                            PlaygroundInstallPhase.SOURCE_MISMATCH,
+                            PlaygroundInstallPhase.FAILED,
+                        )
+                    ) {
+                        updateStatus("本地模型启动复核失败")
+                    }
+                    if (currentTab == AppTab.PLAYGROUND) renderCurrentTab()
+                }
+            }
+        }
+        if (!handle.started) installer.releaseStartupVerificationClaim()
+    }
+
+    private fun playgroundInstallerForModelPath(modelPath: String): PlaygroundArtifactInstaller? {
+        return PlaygroundInstallerRegistry.forManagedModelPath(modelPath)
+    }
+
+    private fun handlePlaygroundPrimaryAction(
+        entry: PlaygroundCatalogEntry,
+        installer: PlaygroundArtifactInstaller,
+        phase: PlaygroundLocalPhase,
+    ) {
+        when (phase) {
+            PlaygroundLocalPhase.NOT_DOWNLOADED,
+            PlaygroundLocalPhase.DOWNLOAD_FAILED,
+            PlaygroundLocalPhase.INSUFFICIENT_STORAGE,
+            -> confirmPlaygroundInstall(entry, installer)
+            PlaygroundLocalPhase.CANCELLED -> {
+                if (installer.snapshot().installedArtifactNames.isNotEmpty()) {
+                    startPlaygroundVerification(installer)
+                } else {
+                    confirmPlaygroundInstall(entry, installer)
+                }
+            }
+            PlaygroundLocalPhase.VERIFICATION_FAILED -> {
+                if (installer.snapshot().installedArtifactNames.isNotEmpty()) {
+                    confirmPlaygroundUninstall(entry, installer)
+                } else {
+                    confirmPlaygroundInstall(entry, installer)
+                }
+            }
+            PlaygroundLocalPhase.DOWNLOADING,
+            PlaygroundLocalPhase.VERIFYING,
+            -> {
+                installer.cancel()
+                updateStatus("正在取消可信模型操作")
+            }
+            PlaygroundLocalPhase.INSTALLED,
+            PlaygroundLocalPhase.LOAD_FAILED,
+            -> loadVerifiedPlaygroundModel(installer)
+            PlaygroundLocalPhase.SOURCE_MISMATCH -> confirmPlaygroundUninstall(entry, installer)
+            PlaygroundLocalPhase.ARTIFACT_MISSING -> {
+                if (installer.snapshot().installedArtifactNames.isNotEmpty()) {
+                    confirmPlaygroundUninstall(entry, installer)
+                } else {
+                    confirmPlaygroundInstall(entry, installer)
+                }
+            }
+            PlaygroundLocalPhase.ATOMIC_INSTALL_FAILED -> startPlaygroundInstall(installer)
+            PlaygroundLocalPhase.UNINSTALL_FAILED -> uninstallPlaygroundModel(installer)
+            PlaygroundLocalPhase.VERIFICATION_IO_FAILED -> startPlaygroundVerification(installer)
+            else -> Unit
+        }
+    }
+
+    private fun confirmPlaygroundInstall(
+        entry: PlaygroundCatalogEntry,
+        installer: PlaygroundArtifactInstaller,
+    ) {
+        val size = formatBytes(installer.spec.totalBytes)
+        AlertDialog.Builder(this)
+            .setTitle("下载并校验 ${entry.displayName}")
+            .setMessage(
+                "将从清单固定的 Hugging Face revision 下载 $size 到 MobileCore 私有目录。" +
+                    "安装前会检查空间，并严格核对字节数与 SHA-256；来源：${entry.source.conversionPublisher}，" +
+                    "许可：${entry.source.license}。",
+            )
+            .setNegativeButton("取消", null)
+            .setPositiveButton("下载并校验") { _, _ -> startPlaygroundInstall(installer) }
+            .show()
+    }
+
+    private fun startPlaygroundInstall(installer: PlaygroundArtifactInstaller) {
+        val handle = installer.install { snapshot ->
+            runOnUiThread {
+                when (snapshot.phase) {
+                    PlaygroundInstallPhase.INSTALLED -> {
+                        updateStatus("模型已通过 SHA-256 校验")
+                        Toast.makeText(this, "模型已安装并校验，可选择加载", Toast.LENGTH_SHORT).show()
+                    }
+                    PlaygroundInstallPhase.VERIFICATION_FAILED -> updateStatus("模型校验失败")
+                    PlaygroundInstallPhase.SOURCE_MISMATCH -> updateStatus("模型来源不匹配")
+                    PlaygroundInstallPhase.CANCELLED -> updateStatus("模型下载已取消")
+                    PlaygroundInstallPhase.FAILED -> updateStatus("模型下载未完成")
+                    else -> Unit
+                }
+                if (currentTab == AppTab.PLAYGROUND) renderCurrentTab()
+            }
+        }
+        if (!handle.started) {
+            Toast.makeText(this, "已有可信模型安装任务正在运行", Toast.LENGTH_SHORT).show()
+        } else {
+            updateStatus("正在检查模型安装空间")
+            if (currentTab == AppTab.PLAYGROUND) renderCurrentTab()
+        }
+    }
+
+    private fun loadVerifiedPlaygroundModel(installer: PlaygroundArtifactInstaller) {
+        val modelFile = installer.primaryModelFile()
+        if (modelFile == null) {
+            startPlaygroundVerification(installer)
+            updateStatus("模型信任状态已失效，正在后台重新校验")
+            return
+        }
+        withNotificationPermission {
+            installer.markLoading()
+            startServiceWithModel(modelFile)
+        }
+    }
+
+    private fun startPlaygroundVerification(installer: PlaygroundArtifactInstaller) {
+        val handle = installer.verifyInstalled { snapshot ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (snapshot.phase) {
+                    PlaygroundInstallPhase.INSTALLED -> updateStatus("模型 SHA-256 校验通过，请再次点击加载")
+                    PlaygroundInstallPhase.CANCELLED -> updateStatus("模型校验已取消")
+                    PlaygroundInstallPhase.VERIFICATION_FAILED -> updateStatus("模型校验未通过")
+                    PlaygroundInstallPhase.FAILED -> updateStatus("模型校验未完成")
+                    else -> Unit
+                }
+                if (currentTab == AppTab.PLAYGROUND) renderCurrentTab()
+            }
+        }
+        if (!handle.started) {
+            Toast.makeText(this, "该模型已有安装或校验任务", Toast.LENGTH_SHORT).show()
+        } else {
+            updateStatus("正在后台校验模型 SHA-256")
+            if (currentTab == AppTab.PLAYGROUND) renderCurrentTab()
+        }
+    }
+
+    private fun confirmPlaygroundUninstall(
+        entry: PlaygroundCatalogEntry,
+        installer: PlaygroundArtifactInstaller,
+    ) {
+        if (pendingModelPath?.let(installer::managesModelPath) == true) {
+            Toast.makeText(this, "模型仍在加载，请等待加载完成后再卸载", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (installer.snapshot().phase == PlaygroundInstallPhase.SOURCE_MISMATCH) "移除不匹配文件" else "卸载模型")
+            .setMessage("将仅删除 MobileCore 私有模型目录中的 ${entry.displayName}、临时文件与校验记录。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("确认移除") { _, _ -> uninstallPlaygroundModel(installer) }
+            .show()
+    }
+
+    private fun uninstallPlaygroundModel(installer: PlaygroundArtifactInstaller) {
+        updateStatus("正在确认当前运行模型")
+        refreshRuntimeModelStateForDestructiveAction { refreshed ->
+            if (!refreshed) {
+                updateStatus("无法确认运行时状态，模型文件保持不变")
+                Toast.makeText(this, "本机服务状态不可确认，未删除任何文件", Toast.LENGTH_LONG).show()
+                return@refreshRuntimeModelStateForDestructiveAction
+            }
+            uninstallPlaygroundModelAfterRefresh(installer)
+        }
+    }
+
+    private fun uninstallPlaygroundModelAfterRefresh(installer: PlaygroundArtifactInstaller) {
+        if (pendingModelPath?.let(installer::managesModelPath) == true) {
+            Toast.makeText(this, "模型仍在加载，暂不删除文件", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (runtimeReportsLoadedModel && activeModelPath == null) {
+            Toast.makeText(this, "无法唯一确认当前运行模型，文件保持不变", Toast.LENGTH_LONG).show()
+            refreshRuntimeModelState()
+            return
+        }
+        callLocalApi(
+            path = "/mobilecore/playground/uninstall",
+            method = "POST",
+            body = JSONObject().put("model_id", installer.spec.id).toString(),
+            retryCount = 1,
+            readTimeoutMs = 45_000,
+            onResult = { status, body, _ ->
+                val result = runCatching { JSONObject(body) }.getOrNull()
+                val removed = status in 200..299 && result?.optBoolean("ok", false) == true
+                if (removed) {
+                    if (result?.optBoolean("model_loaded", false) != true) {
+                        runtimeReportsLoadedModel = false
+                        activeModelPath = null
+                        pendingModelPath = null
+                        reconcilePlaygroundRuntimeTruth(null)
+                    }
+                    updateStatus("模型已卸载")
+                    Toast.makeText(this, "模型与校验记录已移除", Toast.LENGTH_SHORT).show()
+                    refreshRecommendationSnapshot()
+                    syncBenchmarkReadiness()
+                    refreshRuntimeModelState()
+                    if (currentTab in setOf(AppTab.MODELS, AppTab.PLAYGROUND)) renderCurrentTab()
+                } else {
+                    updateStatus("模型卸载失败，文件保持不变")
+                    Toast.makeText(this, "运行时或文件状态无法安全确认，未完成卸载", Toast.LENGTH_LONG).show()
+                    refreshRuntimeModelState()
+                }
+            },
+            onError = {
+                updateStatus("本机服务不可达，模型文件保持不变")
+                Toast.makeText(this, "无法进入运行时互斥卸载，未删除任何文件", Toast.LENGTH_LONG).show()
+            },
+        )
+    }
+
+    private fun playgroundSourceActionLabel(entry: PlaygroundCatalogEntry): String = when {
+        entry.distribution.mode == "huggingface_model_repo" -> "查看 Hugging Face 来源"
+        entry.distribution.repositoryUrl == null -> "查看固定来源"
+        else -> "查看发布仓库"
     }
 
     private fun openPlaygroundSource(entry: PlaygroundCatalogEntry) {
@@ -2705,7 +3764,7 @@ class MainActivity : Activity() {
         return surfaceCard(Palette.sky) {
             val links = listOf(
                 LabLink("本地多模态", "Omni 授权、预检与双 artifact 管理", "实验", "chip", Palette.lavender, AppTab.OMNI),
-                LabLink("本地相册搜索", "CLIP 召回 + G2D 候选复核", "产品", "image", Palette.mint, AppTab.GALLERY),
+                LabLink("本地相册搜索", "CLIP 本地召回 · G2D 复核待接入", "产品", "image", Palette.mint, AppTab.GALLERY),
                 LabLink("G2D 端侧验证", "Oxford-Pets 五种策略实测", "论文", "chip", Palette.lavender, AppTab.G2D_LAB),
                 LabLink("视觉模型管理", "YOLO、CLIP 与小型 VLM", "模型", "cube", Palette.sky, AppTab.VISION_MODELS),
                 LabLink("视觉识别", "OCR 与轻量视觉探针", "实验", "image", Palette.lavender, AppTab.VISION),
@@ -3896,6 +4955,18 @@ class MainActivity : Activity() {
     }
 
     private fun loadRecommendedModel(modelId: String) {
+        val requestedPath = availableGgufModels()
+            .filter { it.nameWithoutExtension.equals(modelId, ignoreCase = true) }
+            .singleOrNull()
+            ?.let { canonicalModelPath(it.absolutePath) }
+        if (requestedPath != null) {
+            if (activeModelPath != requestedPath) {
+                activeModelPath = null
+                runtimeReportsLoadedModel = false
+                reconcilePlaygroundRuntimeTruth(null)
+            }
+            pendingModelPath = requestedPath
+        }
         Thread {
             try {
                 val requestBody = JSONObject().apply {
@@ -3907,7 +4978,7 @@ class MainActivity : Activity() {
                     setRequestProperty("Content-Type", "application/json")
                     doOutput = true
                     connectTimeout = 1200
-                    readTimeout = 3000
+                    readTimeout = 120_000
                 }
                 connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
                 val status = connection.responseCode
@@ -3922,10 +4993,13 @@ class MainActivity : Activity() {
                     } else {
                         Toast.makeText(this@MainActivity, response.optString("error", "模型加载失败"), Toast.LENGTH_LONG).show()
                     }
+                    refreshRuntimeModelState()
                     refreshRecommendationSnapshot()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
+                    pendingModelPath = null
+                    refreshRuntimeModelState()
                     Toast.makeText(this@MainActivity, "模型加载失败，请确认服务已启动", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -4530,35 +5604,107 @@ class MainActivity : Activity() {
         ModelLifecycleTone.NEUTRAL -> Palette.muted
     }
 
-    private fun refreshRuntimeModelState() {
+    private fun refreshRuntimeModelState(onComplete: (() -> Unit)? = null) {
+        onComplete?.let(runtimeModelStateCompletionCallbacks::add)
+        beginRuntimeModelStateRefresh()
+    }
+
+    private fun refreshRuntimeModelStateForDestructiveAction(onComplete: (Boolean) -> Unit) {
+        runtimeModelStateResultCallbacks.add(onComplete)
+        beginRuntimeModelStateRefresh()
+    }
+
+    private fun beginRuntimeModelStateRefresh() {
+        if (runtimeModelStateRefreshInFlight) return
+        runtimeModelStateRefreshInFlight = true
         callLocalApi(
             path = "/health",
             method = "GET",
             body = null,
             retryCount = 1,
             onResult = { status, body, _ ->
-                if (status !in 200..299) return@callLocalApi
-                val health = runCatching { JSONObject(body) }.getOrNull() ?: return@callLocalApi
-                val loaded = health.optBoolean("model_loaded", false)
-                val activeId = health.optString("active_model").takeIf { it.isNotBlank() && it != "null" }
-                val resolvedPath = if (loaded && activeId != null) {
-                    availableGgufModels().firstOrNull {
-                        it.nameWithoutExtension.equals(activeId, ignoreCase = true) ||
-                            it.absolutePath.equals(activeId, ignoreCase = true)
-                    }?.absolutePath
-                } else {
-                    null
+                if (status !in 200..299) {
+                    completeRuntimeModelStateRefresh(success = false)
+                    return@callLocalApi
                 }
+                val health = runCatching { JSONObject(body) }.getOrNull()
+                if (health == null) {
+                    completeRuntimeModelStateRefresh(success = false)
+                    return@callLocalApi
+                }
+                val loaded = health.optBoolean("model_loaded", false)
+                runtimeReportsLoadedModel = loaded
+                val activeId = health.optString("active_model").takeIf { it.isNotBlank() && it != "null" }
+                val mainArtifact = health.optJSONObject("artifacts")?.optJSONObject("main")
+                val verifiedDigest = mainArtifact
+                    ?.takeIf { it.optBoolean("verified", false) }
+                    ?.optString("digest")
+                    ?.takeIf { it.matches(Regex("^[0-9a-fA-F]{64}$")) }
+                val resolvedPath = PlaygroundRuntimeTruthResolver.resolve(
+                    modelLoaded = loaded,
+                    activeModelId = activeId,
+                    verifiedMainDigest = verifiedDigest,
+                    candidates = runtimeModelCandidates(),
+                )
                 activeModelPath = resolvedPath
+                pendingModelPath = null
                 if (resolvedPath != null) {
-                    pendingModelPath = null
                     modelLoadFailurePath = null
                     modelLoadFailureMessage = null
                 }
+                reconcilePlaygroundRuntimeTruth(resolvedPath)
                 if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.PLAYGROUND, AppTab.TEST)) renderCurrentTab()
+                completeRuntimeModelStateRefresh(success = true)
             },
-            onError = { /* A stopped local service is a valid idle state. */ },
+            onError = {
+                // A path-free failed health request cannot establish exact runtime identity. Keep
+                // the last broadcast truth, but never promote a Playground entry from a filename.
+                runtimeReportsLoadedModel = activeModelPath != null
+                reconcilePlaygroundRuntimeTruth(activeModelPath)
+                completeRuntimeModelStateRefresh(success = false)
+            },
         )
+    }
+
+    private fun completeRuntimeModelStateRefresh(success: Boolean) {
+        runtimeModelStateRefreshInFlight = false
+        val callbacks = runtimeModelStateCompletionCallbacks.toList()
+        runtimeModelStateCompletionCallbacks.clear()
+        callbacks.forEach { it() }
+        val resultCallbacks = runtimeModelStateResultCallbacks.toList()
+        runtimeModelStateResultCallbacks.clear()
+        resultCallbacks.forEach { it(success) }
+    }
+
+    private fun runtimeModelCandidates(): List<PlaygroundRuntimeCandidate> {
+        val trustedDigestByPath = PlaygroundInstallerRegistry.values().mapNotNull { installer ->
+            val file = installer.primaryModelFile() ?: return@mapNotNull null
+            canonicalModelPath(file.absolutePath)?.let { it to installer.spec.primaryArtifact.sha256 }
+        }.toMap()
+        return availableGgufModels().mapNotNull { file ->
+            val path = canonicalModelPath(file.absolutePath) ?: return@mapNotNull null
+            PlaygroundRuntimeCandidate(
+                publicModelId = file.nameWithoutExtension,
+                path = path,
+                trustedSha256 = trustedDigestByPath[path],
+            )
+        }
+    }
+
+    private fun canonicalModelPath(path: String): String? =
+        runCatching { File(path).canonicalFile.absolutePath }.getOrNull()
+
+    private fun reconcilePlaygroundRuntimeTruth(exactActivePath: String?) {
+        PlaygroundInstallerRegistry.values().forEach { installer ->
+            val exactMatch = exactActivePath?.let(installer::managesModelPath) == true
+            when {
+                exactMatch && installer.snapshot().verified -> installer.markLoaded()
+                !exactMatch && installer.snapshot().phase in setOf(
+                    PlaygroundInstallPhase.LOADING,
+                    PlaygroundInstallPhase.LOADED,
+                ) -> installer.markUnloaded()
+            }
+        }
     }
 
     private fun syncBenchmarkReadiness(render: Boolean = true) {
@@ -4640,10 +5786,21 @@ class MainActivity : Activity() {
             benchmarkCancellationRequested = false
             val deviceProfile = probeDeviceProfile()
             val spec = BenchmarkSpecV2.forProfile(profile, threads = deviceProfile.coreCount.coerceAtMost(6))
+            val galleryRelease = releaseGallerySearchRuntime(
+                "跑分需要加载 GGUF，已释放 CLIP 会话；照片索引仍保留。",
+            )
             startServiceInForeground()
 
             Thread {
                 try {
+                    if (galleryRelease != null &&
+                        runCatching { galleryRelease.get(30L, TimeUnit.SECONDS) }.isFailure
+                    ) {
+                        throw BenchmarkRunException(
+                            BenchmarkFailureKind.RUNTIME_UNAVAILABLE,
+                            "无法安全释放 CLIP 内存，跑分已取消。",
+                        )
+                    }
                     val health = localApiRequestBlocking(
                         path = "/health",
                         method = "GET",
@@ -4708,6 +5865,7 @@ class MainActivity : Activity() {
                         throw BenchmarkRunException(BenchmarkFailureKind.MODEL_INVALID, "标准模型加载失败")
                     }
                     activeModelPath = model.absolutePath
+                    runtimeReportsLoadedModel = true
                     pendingModelPath = null
                     modelLoadFailurePath = null
                     modelLoadFailureMessage = null
@@ -5088,15 +6246,36 @@ class MainActivity : Activity() {
                 body = "{}",
                 readTimeoutMs = 300_000,
             )
-            OmniLifecycleAction.LOAD -> performOmniLifecycleRequest(
-                actionLabel = "加载多模态模型",
-                path = "/mobilecore/omni/load",
-                body = JSONObject()
-                    .put("context_length", 4096)
-                    .put("threads", 4)
-                    .toString(),
-                readTimeoutMs = 180_000,
-            )
+            OmniLifecycleAction.LOAD -> {
+                val loadOmni = {
+                    performOmniLifecycleRequest(
+                        actionLabel = "加载多模态模型",
+                        path = "/mobilecore/omni/load",
+                        body = JSONObject()
+                            .put("context_length", 4096)
+                            .put("threads", 4)
+                            .toString(),
+                        readTimeoutMs = 180_000,
+                    )
+                }
+                val release = releaseGallerySearchRuntime(
+                    "正在加载 Omni GGUF，已释放 CLIP 会话以避免内存叠加。",
+                )
+                if (release == null) {
+                    loadOmni()
+                } else {
+                    Thread {
+                        val released = runCatching { release.get(30L, TimeUnit.SECONDS) }.isSuccess
+                        runOnUiThread {
+                            if (released) loadOmni() else Toast.makeText(
+                                this,
+                                "无法安全释放 CLIP，已取消 Omni 加载",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }.start()
+                }
+            }
             OmniLifecycleAction.UNINSTALL -> showOmniUninstallDialog()
             OmniLifecycleAction.OPEN_SOURCE -> openOmniPinnedSource()
         }
@@ -5312,6 +6491,15 @@ class MainActivity : Activity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == galleryPermissionRequestCode) {
+            if (hasGalleryImageAccess()) {
+                startGalleryIndex()
+            } else {
+                handleGalleryAccessRevoked(showToast = false)
+                Toast.makeText(this, "未获得照片访问权限，未建立任何索引", Toast.LENGTH_LONG).show()
+            }
+            return
+        }
         if (requestCode != notificationPermissionRequestCode) return
         if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             val action = pendingAfterNotificationPermission
@@ -5361,6 +6549,10 @@ class MainActivity : Activity() {
     private fun stopMobileCoreService() {
         val intent = Intent(this, MobileCoreService::class.java)
         stopService(intent)
+        runtimeReportsLoadedModel = false
+        activeModelPath = null
+        pendingModelPath = null
+        reconcilePlaygroundRuntimeTruth(null)
         updateStatus("本机服务已停止")
         renderRecommendationPlaceholder("服务已停止，请重启 API 后刷新推荐。")
     }
@@ -5395,6 +6587,7 @@ class MainActivity : Activity() {
                     "application/octet-stream",
                     "application/json",
                     "text/json",
+                    "text/plain",
                     "application/x-tflite",
                     "application/x-onnx"
                 )
@@ -5446,6 +6639,7 @@ class MainActivity : Activity() {
         val displayName = resolveDisplayName(uri) ?: "vision-model-${System.currentTimeMillis()}"
         val safeName = sanitizeVisionModelFileName(displayName)
         val destination = File(internalVisionModelDir(), safeName)
+        val temporary = File(internalVisionModelDir(), ".$safeName.${UUID.randomUUID()}.part")
         visionResultText?.text = "正在导入视觉模型：$safeName"
         updateStatus("正在导入视觉模型")
 
@@ -5453,11 +6647,22 @@ class MainActivity : Activity() {
             try {
                 contentResolver.openInputStream(uri).use { input ->
                     requireNotNull(input) { "无法打开所选视觉模型" }
-                    FileOutputStream(destination).use { output ->
+                    FileOutputStream(temporary).use { output ->
                         input.copyTo(output)
+                        output.fd.sync()
                     }
                 }
+                require(temporary.length() > 0L) { "视觉模型文件为空" }
+                Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
                 runOnUiThread {
+                    if (isGalleryClipArtifactName(destination.name)) {
+                        invalidateGallerySearchRuntime("CLIP 模型文件已更新，请重新准备并建立照片索引。")
+                    }
                     visionModelSummaryText?.text = visionModelSummary()
                     visionResultText?.text = "${destination.name} 已导入 · ${formatBytes(destination.length())}\n点击检查模型刷新后端状态。"
                     Toast.makeText(this, "视觉模型已导入", Toast.LENGTH_SHORT).show()
@@ -5465,9 +6670,9 @@ class MainActivity : Activity() {
                     if (currentTab == AppTab.VISION || currentTab == AppTab.VISION_MODELS) renderCurrentTab()
                 }
             } catch (e: Exception) {
-                if (destination.exists()) destination.delete()
+                temporary.delete()
                 runOnUiThread {
-                    visionResultText?.text = "视觉模型导入失败。支持 ONNX / ORT / TFLite / MNN / JSON / GGUF / mmproj。"
+                    visionResultText?.text = "视觉模型导入失败。支持 ONNX / ORT / TFLite / MNN / JSON / TXT / GGUF / mmproj。"
                     Toast.makeText(this, "视觉模型导入失败", Toast.LENGTH_SHORT).show()
                     updateStatus("视觉模型导入失败")
                 }
@@ -5570,25 +6775,35 @@ class MainActivity : Activity() {
         val displayName = resolveDisplayName(uri) ?: "imported-${System.currentTimeMillis()}.gguf"
         val safeName = sanitizeModelFileName(displayName)
         val destination = File(internalModelDir(), safeName)
+        val catalog = playgroundCatalog
+        if (catalog == null || PlaygroundManagedArtifactPolicy.isManagedFileName(catalog, safeName)) {
+            updateStatus("导入已拒绝：文件名属于 Playground 受管路径")
+            Toast.makeText(this, "该文件名由可信模型安装器管理，不能用普通导入覆盖", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (destination.exists()) {
+            updateStatus("导入已拒绝：同名模型已存在")
+            Toast.makeText(this, "同名模型已存在；普通导入不会覆盖本机文件", Toast.LENGTH_LONG).show()
+            return
+        }
+        val temporary = File(internalModelDir(), ".$safeName.${UUID.randomUUID()}.import")
 
         updateStatus("正在导入模型：$safeName")
         Thread {
             try {
                 contentResolver.openInputStream(uri).use { input ->
                     requireNotNull(input) { "无法打开所选文件" }
-                    FileOutputStream(destination).use { output ->
-                        input.copyTo(output)
-                    }
+                    AtomicGgufImport.copy(input, temporary, destination)
                 }
                 runOnUiThread {
                     Toast.makeText(this, "模型已导入", Toast.LENGTH_SHORT).show()
                     ensureNotificationPermissionAndLoadModel(destination)
                 }
             } catch (e: Exception) {
-                if (destination.exists()) destination.delete()
+                temporary.delete()
                 runOnUiThread {
                     updateStatus("模型导入失败")
-                    Toast.makeText(this, "GGUF 导入失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "GGUF 导入失败；原文件未被覆盖", Toast.LENGTH_SHORT).show()
                 }
             }
         }.start()
@@ -5612,7 +6827,35 @@ class MainActivity : Activity() {
     }
 
     private fun startServiceWithModel(model: File) {
-        pendingModelPath = model.absolutePath
+        val release = releaseGallerySearchRuntime(
+            "正在加载 GGUF，已释放 CLIP 会话以避免两个模型同时占用内存。",
+        )
+        if (release != null) {
+            updateStatus("正在释放视觉模型内存")
+            Thread {
+                val released = runCatching { release.get(30L, TimeUnit.SECONDS) }.isSuccess
+                runOnUiThread {
+                    if (released) {
+                        startServiceWithModelAfterGalleryRelease(model)
+                    } else {
+                        updateStatus("视觉模型内存释放失败，未加载 GGUF")
+                        Toast.makeText(this, "无法安全释放 CLIP，已取消模型加载", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }.start()
+            return
+        }
+        startServiceWithModelAfterGalleryRelease(model)
+    }
+
+    private fun startServiceWithModelAfterGalleryRelease(model: File) {
+        val requestedPath = canonicalModelPath(model.absolutePath) ?: model.absolutePath
+        if (activeModelPath != requestedPath) {
+            activeModelPath = null
+            runtimeReportsLoadedModel = false
+            reconcilePlaygroundRuntimeTruth(null)
+        }
+        pendingModelPath = requestedPath
         modelLoadFailurePath = null
         modelLoadFailureMessage = null
         val intent = Intent(this, MobileCoreService::class.java).apply {
@@ -5676,15 +6919,13 @@ class MainActivity : Activity() {
     }
 
     private fun visionModelDirs(): List<File> {
-        return listOf(internalVisionModelDir(), externalVisionModelDir()).onEach { it.mkdirs() }
+        // One canonical app-private directory is shared by import UI, catalog and runtime.
+        // Never assemble a runnable CLIP package from files spread across storage roots.
+        return listOf(internalVisionModelDir()).onEach { it.mkdirs() }
     }
 
     private fun internalVisionModelDir(): File {
         return File(filesDir, "vision/models")
-    }
-
-    private fun externalVisionModelDir(): File {
-        return getExternalFilesDir("vision/models") ?: File(filesDir, "vision/models")
     }
 
     private fun scanVisionModelFiles(): List<File> {
@@ -5703,7 +6944,7 @@ class MainActivity : Activity() {
         return visionModelDirs()
             .flatMap { dir ->
                 dir.listFiles { file ->
-                    file.isFile && file.extension.equals("json", ignoreCase = true)
+                    file.isFile && file.extension.lowercase(Locale.US) in setOf("json", "txt")
                 }?.toList() ?: emptyList()
             }
             .distinctBy { it.absolutePath }
@@ -5744,7 +6985,7 @@ class MainActivity : Activity() {
     }
 
     private fun copyVisionModelDir() {
-        val directory = externalVisionModelDir().absolutePath
+        val directory = internalVisionModelDir().absolutePath
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("MobileCore vision models", directory))
         visionResultText?.text = "视觉模型目录已复制。"
@@ -5783,9 +7024,16 @@ class MainActivity : Activity() {
     private fun sanitizeVisionModelFileName(name: String): String {
         val cleaned = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._-]"), "_")
         val nonBlank = cleaned.ifBlank { "vision-model-${System.currentTimeMillis()}.onnx" }
-        val allowed = setOf("onnx", "ort", "tflite", "mnn", "json", "gguf", "mmproj")
+        val allowed = setOf("onnx", "ort", "tflite", "mnn", "json", "txt", "gguf", "mmproj")
         val extension = nonBlank.substringAfterLast('.', "").lowercase(Locale.US)
         return if (extension in allowed) nonBlank else "$nonBlank.onnx"
+    }
+
+    private fun isGalleryClipArtifactName(fileName: String): Boolean {
+        val normalized = fileName.lowercase(Locale.US)
+        return normalized in setOf("vocab.json", "merges.txt", "tokenizer_config.json") ||
+            normalized == "openai-clip-vit-b16-image.onnx" ||
+            normalized == "openai-clip-vit-b16-text.onnx"
     }
 
     private fun updateStatus(message: String) {

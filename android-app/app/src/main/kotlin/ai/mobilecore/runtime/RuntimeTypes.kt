@@ -24,6 +24,8 @@ data class RuntimeProjector(
 
 data class RuntimeMultimodalStatus(
     val projectorId: String? = null,
+    /** Canonical process-local identity. This path is never serialized to public API responses. */
+    val projectorPath: String? = null,
     val imageInput: Boolean = false,
     val audioInput: Boolean = false,
     val audioSampleRateHz: Int = 0,
@@ -213,6 +215,8 @@ interface RuntimeBackend {
     fun loadModel(modelPath: String, options: LoadOptions = LoadOptions()): LoadResult
     fun unloadModel(): Boolean
     fun isModelLoaded(): Boolean
+    /** Canonical process-local identity for the actually loaded artifact; never expose it publicly. */
+    fun activeModelPath(): String? = null
     fun chat(messages: List<ChatMessage>, options: ChatOptions): ChatResult
     fun streamChat(messages: List<ChatMessage>, options: ChatOptions): Sequence<ChatToken>
     fun cancelInference(): Boolean = false

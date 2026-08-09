@@ -78,7 +78,7 @@ class MobileCoreService : Service() {
                 state = ModelLoadStatusContract.STATE_LOADING,
                 modelPath = modelPath,
             )
-            val result = backend.loadModel(modelPath, LoadOptions())
+            val result = server.loadModelFromService(java.io.File(modelPath), LoadOptions())
             updateNotification(
                 if (result.ok) {
                     "Model loaded: ${result.modelId}"

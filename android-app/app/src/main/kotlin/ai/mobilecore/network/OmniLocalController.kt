@@ -12,6 +12,7 @@ import ai.mobilecore.omni.artifact.OmniInstallRequest
 import ai.mobilecore.omni.artifact.OmniInstallSnapshot
 import ai.mobilecore.omni.artifact.OmniLoadPairResult
 import ai.mobilecore.omni.artifact.Qwen25Omni3bArtifacts
+import ai.mobilecore.playground.PlaygroundArtifactHealthResolver
 import ai.mobilecore.runtime.ArtifactHealth
 import ai.mobilecore.runtime.LoadOptions
 import ai.mobilecore.runtime.MobileCoreHealthSnapshot
@@ -49,11 +50,17 @@ internal class OmniLocalController(
     private val runtimeInfo: () -> JSONObject = {
         runCatching { JSONObject(RuntimeBridge.info()) }.getOrElse { JSONObject() }
     },
-    private val activeModelQuantization: (String?) -> String = { "unknown" },
+    /** Both lookup functions accept canonical process-local paths, never public model ids. */
     private val activeModelLookup: (String?) -> RuntimeModel? = { null },
     private val activeProjectorLookup: (String?) -> RuntimeProjector? = { null },
+    private val activeArtifactHealthLookup: (RuntimeModel) -> ArtifactHealth? = { null },
     private val backgroundRestrictedProbe: () -> Boolean = { false },
+    private val bootstrapPersistedTrust: Boolean = false,
 ) {
+    init {
+        if (bootstrapPersistedTrust) installer.startStartupVerification()
+    }
+
     constructor(
         context: Context,
         backend: RuntimeBackend,
@@ -64,40 +71,50 @@ internal class OmniLocalController(
         version = version,
         installDirectory = modelManager.modelDirectories().first(),
         environmentProbe = AndroidOmniInstallEnvironmentProbe(context, modelManager.modelDirectories().first()),
-        activeModelQuantization = { activeModel ->
-            modelManager.scanModels()
-                .firstOrNull { it.id.equals(activeModel, ignoreCase = true) }
-                ?.quantization
-                ?: "unknown"
+        activeModelLookup = { activeModelPath ->
+            modelManager.modelByPath(activeModelPath)
         },
-        activeModelLookup = { activeModel ->
-            activeModel?.let(modelManager::modelById)
+        activeProjectorLookup = { projectorPath ->
+            modelManager.projectorByPath(projectorPath)
         },
-        activeProjectorLookup = { projectorId ->
-            projectorId?.let(modelManager::projectorById)
-        },
+        activeArtifactHealthLookup = PlaygroundArtifactHealthResolver(
+            context.applicationContext,
+            modelManager,
+        )::resolve,
         backgroundRestrictedProbe = {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
                 (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
                     .isBackgroundRestricted
         },
+        bootstrapPersistedTrust = true,
     )
 
     fun health(): JSONObject {
         val snapshot = installer.snapshot()
         val environment = environmentProbe.probe()
         val native = runtimeInfo()
-        val loaded = backend.isModelLoaded() && native.optBoolean("modelLoaded", true)
+        val runtimeReportsLoaded = backend.isModelLoaded() && native.optBoolean("modelLoaded", true)
         val main = requireNotNull(manifest.artifact(OmniArtifactRole.MAIN))
         val mmproj = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
-        val activeModel = backend.metrics().activeModel
-        val activeRuntimeModel = activeModelLookup(activeModel)
+        val activeModelPath = backend.activeModelPath()
+        val activeRuntimeModel = activeModelLookup(activeModelPath)?.takeIf { model ->
+            sameCanonicalPath(model.path, activeModelPath)
+        }
         val runtimeMultimodal = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
-        val activeRuntimeProjector = activeProjectorLookup(runtimeMultimodal?.projectorId)
-        val qwenOmniLoaded = loaded && snapshot.pairVerified && activeModel.equals(
-            main.fileName.removeSuffix(".gguf"),
-            ignoreCase = true,
-        )
+        val activeRuntimeProjector = activeProjectorLookup(runtimeMultimodal?.projectorPath)
+            ?.takeIf { projector ->
+                sameCanonicalPath(projector.path, runtimeMultimodal?.projectorPath)
+            }
+        val loaded = runtimeReportsLoaded && activeRuntimeModel != null
+        val activeModel = activeRuntimeModel?.id
+        val activeArtifactHealth = activeRuntimeModel?.let(activeArtifactHealthLookup)
+        val qwenOmniLoaded = loaded &&
+            snapshot.pairVerified &&
+            sameCanonicalPath(activeModelPath, File(installDirectory, main.fileName).path) &&
+            sameCanonicalPath(
+                runtimeMultimodal?.projectorPath,
+                File(installDirectory, mmproj.fileName).path,
+            )
         val genericMultimodalLoaded = loaded &&
             activeRuntimeModel != null &&
             activeRuntimeProjector != null &&
@@ -106,7 +123,7 @@ internal class OmniLocalController(
         val base = MobileCoreHealthSnapshot(
             version = version,
             activeModel = activeModel,
-            quantization = activeModelQuantization(activeModel),
+            quantization = activeRuntimeModel?.quantization ?: "unknown",
             modelLoaded = loaded,
             runtime = if (multimodalLoaded) "llama.cpp/libmtmd" else "llama.cpp",
             backend = "cpu",
@@ -128,7 +145,7 @@ internal class OmniLocalController(
                 audioOutput = false,
             ),
             mainArtifact = if (loaded && activeRuntimeModel != null && !qwenOmniLoaded) {
-                ArtifactHealth(
+                activeArtifactHealth ?: ArtifactHealth(
                     fileName = File(activeRuntimeModel.path).name,
                     expectedSha256 = "",
                     expectedBytes = activeRuntimeModel.sizeBytes,
@@ -250,6 +267,7 @@ internal class OmniLocalController(
     }
 
     fun load(request: JSONObject): OmniControllerResult {
+        val projector = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
         val options = LoadOptions(
             contextLength = request.optInt("context_length", 4096).coerceIn(128, 32_768),
             threads = request.optInt("threads", 4).coerceIn(1, 16),
@@ -266,20 +284,30 @@ internal class OmniLocalController(
                 )
                 return@loadVerifiedPair false
             }
-            val projectorLoad = runCatching {
-                JSONObject(
-                    RuntimeBridge.loadMtmdProjector(
-                        projectorPath = mmprojPath,
-                        threads = options.threads,
-                    ),
-                )
-            }.getOrNull()
-            val ok = projectorLoad?.optBoolean("ok", false) == true
+            val multimodal = backend as? MultimodalRuntimeBackend
+            val ok = multimodal?.loadProjector(
+                projectorPath = mmprojPath,
+                projectorId = projector.fileName.removeSuffix(".gguf"),
+                threads = options.threads,
+            ) == true
             if (!ok) {
-                runtimeFailure = projectorRuntimeFailure(projectorLoad?.optString("code", ""))
+                runtimeFailure = projectorRuntimeFailure("")
+                backend.unloadModel()
+                return@loadVerifiedPair false
+            }
+            val runtimeProjectorPath = (backend as? MultimodalRuntimeBackend)
+                ?.multimodalStatus()
+                ?.projectorPath
+            val identityMatches = sameCanonicalPath(backend.activeModelPath(), mainPath) &&
+                sameCanonicalPath(runtimeProjectorPath, mmprojPath)
+            if (!identityMatches) {
+                runtimeFailure = OmniArtifactFailure(
+                    OmniArtifactFailureCode.MODEL_LOAD_FAILED,
+                    "The runtime did not confirm the exact verified artifact pair",
+                )
                 backend.unloadModel()
             }
-            ok
+            identityMatches
         }
         return when (result) {
             OmniLoadPairResult.Loaded -> OmniControllerResult(
@@ -298,7 +326,63 @@ internal class OmniLocalController(
     }
 
     fun uninstall(): OmniControllerResult {
-        backend.unloadModel()
+        val main = requireNotNull(manifest.artifact(OmniArtifactRole.MAIN))
+        val mmproj = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
+        if (backend.isModelLoaded()) {
+            val activePath = backend.activeModelPath()
+            if (activePath == null) {
+                return OmniControllerResult(
+                    false,
+                    errorJson(
+                        OmniArtifactFailure(
+                            OmniArtifactFailureCode.MODEL_LOAD_FAILED,
+                            "Runtime artifact identity is unavailable; uninstall was refused",
+                            OmniArtifactRole.MAIN,
+                        ),
+                    ),
+                )
+            }
+            val multimodalStatus = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
+            if (multimodalStatus?.projectorId != null && multimodalStatus.projectorPath.isNullOrBlank()) {
+                return OmniControllerResult(
+                    false,
+                    errorJson(
+                        OmniArtifactFailure(
+                            OmniArtifactFailureCode.MODEL_LOAD_FAILED,
+                            "Runtime projector identity is unavailable; uninstall was refused",
+                            OmniArtifactRole.MMPROJ,
+                        ),
+                    ),
+                )
+            }
+            val usesManagedMain = sameCanonicalPath(
+                activePath,
+                File(installDirectory, main.fileName).path,
+            )
+            val usesManagedProjector = sameCanonicalPath(
+                multimodalStatus?.projectorPath,
+                File(installDirectory, mmproj.fileName).path,
+            )
+            if (usesManagedMain || usesManagedProjector) {
+                val unloaded = backend.unloadModel()
+                val projectorStillManaged = sameCanonicalPath(
+                    (backend as? MultimodalRuntimeBackend)?.multimodalStatus()?.projectorPath,
+                    File(installDirectory, mmproj.fileName).path,
+                )
+                if (!unloaded || backend.isModelLoaded() || projectorStillManaged) {
+                    return OmniControllerResult(
+                        false,
+                        errorJson(
+                            OmniArtifactFailure(
+                                OmniArtifactFailureCode.MODEL_LOAD_FAILED,
+                                "The active Omni runtime could not be confirmed unloaded",
+                                OmniArtifactRole.MAIN,
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
         val snapshot = installer.uninstall()
         return snapshot.failure?.let { OmniControllerResult(false, errorJson(it)) }
             ?: OmniControllerResult(true, snapshotJson(snapshot, environmentProbe.probe()))
@@ -312,8 +396,12 @@ internal class OmniLocalController(
             environment.availableMemoryBytes >= manifest.minimumAvailableMemoryBytes &&
                 environment.availableStorageBytes >= manifest.requiredStorageBytes
         val main = requireNotNull(manifest.artifact(OmniArtifactRole.MAIN))
-        val loaded = backend.isModelLoaded() && snapshot.pairVerified &&
-            backend.metrics().activeModel.equals(main.fileName.removeSuffix(".gguf"), ignoreCase = true)
+        val mmproj = requireNotNull(manifest.artifact(OmniArtifactRole.MMPROJ))
+        val multimodal = (backend as? MultimodalRuntimeBackend)?.multimodalStatus()
+        val loaded = backend.isModelLoaded() &&
+            snapshot.pairVerified &&
+            sameCanonicalPath(backend.activeModelPath(), File(installDirectory, main.fileName).path) &&
+            sameCanonicalPath(multimodal?.projectorPath, File(installDirectory, mmproj.fileName).path)
         return JSONObject().apply {
             put("model_id", snapshot.modelId)
             put("revision", snapshot.revision)
@@ -365,6 +453,13 @@ internal class OmniLocalController(
             put("code", failure.code.wireValue)
             put("artifact_role", failure.artifactRole?.name?.lowercase() ?: JSONObject.NULL)
         })
+    }
+
+    private fun sameCanonicalPath(first: String?, second: String?): Boolean {
+        if (first.isNullOrBlank() || second.isNullOrBlank()) return false
+        val canonicalFirst = runCatching { File(first).canonicalPath }.getOrNull() ?: return false
+        val canonicalSecond = runCatching { File(second).canonicalPath }.getOrNull() ?: return false
+        return canonicalFirst == canonicalSecond
     }
 }
 

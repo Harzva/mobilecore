@@ -35,7 +35,7 @@ enum class VisionModelSlot(
     CLIP_RETRIEVAL(
         defaultTitle = "CLIP 图文检索",
         taskLabel = "图文匹配",
-        expectedFormat = "图像编码器 + 文本编码器 / embedding sidecar",
+        expectedFormat = "图像编码器 + 文本编码器 + tokenizer / embedding sidecar",
         defaultRuntime = "ONNX Runtime Mobile"
     ),
     SMALL_VLM(
@@ -50,6 +50,7 @@ enum class VisionArtifactRole(val label: String) {
     YOLO_MODEL("模型"),
     CLIP_IMAGE_ENCODER("图像编码器"),
     CLIP_TEXT_ENCODER("文本编码器"),
+    CLIP_TOKENIZER("文本 tokenizer"),
     CLIP_EMBEDDING_SIDECAR("固定标签 sidecar"),
     VLM_MAIN_MODEL("GGUF 主模型"),
     VLM_MMPROJ("mmproj 视觉投影")
@@ -226,13 +227,23 @@ object VisionModelImportPresenter {
         val hasImage = input.artifacts.any { it.role == VisionArtifactRole.CLIP_IMAGE_ENCODER }
         val hasText = input.artifacts.any { it.role == VisionArtifactRole.CLIP_TEXT_ENCODER }
         val hasSidecar = input.artifacts.any { it.role == VisionArtifactRole.CLIP_EMBEDDING_SIDECAR }
+        val tokenizerNames = input.artifacts
+            .filter { it.role == VisionArtifactRole.CLIP_TOKENIZER }
+            .mapTo(linkedSetOf()) { it.fileName.lowercase(Locale.US) }
+        val missingTokenizer = setOf("vocab.json", "merges.txt", "tokenizer_config.json") - tokenizerNames
         if (!hasImage) {
             return Validation(VisionPackageStatus.MISSING_FILES, "缺少 CLIP 图像编码器。")
         }
-        if (hasText) {
+        if (hasText && missingTokenizer.isEmpty()) {
             return Validation(
                 VisionPackageStatus.READY,
-                "图像与文本编码器已配对，可在诊断通过后用于开放文本检索。"
+                "图像、文本编码器与 tokenizer 已配对，可在诊断通过后用于开放文本检索。"
+            )
+        }
+        if (hasText) {
+            return Validation(
+                VisionPackageStatus.MISSING_FILES,
+                "文本编码器已导入，但缺少 ${missingTokenizer.sorted().joinToString("、")}。"
             )
         }
         if (hasSidecar) {
@@ -272,6 +283,7 @@ object VisionModelImportPresenter {
         VisionModelSlot.CLIP_RETRIEVAL -> role in setOf(
             VisionArtifactRole.CLIP_IMAGE_ENCODER,
             VisionArtifactRole.CLIP_TEXT_ENCODER,
+            VisionArtifactRole.CLIP_TOKENIZER,
             VisionArtifactRole.CLIP_EMBEDDING_SIDECAR
         )
 
@@ -285,6 +297,7 @@ object VisionModelImportPresenter {
             VisionArtifactRole.CLIP_IMAGE_ENCODER,
             VisionArtifactRole.CLIP_TEXT_ENCODER -> extension in setOf("onnx", "ort", "tflite", "mnn")
 
+            VisionArtifactRole.CLIP_TOKENIZER -> extension in setOf("json", "txt")
             VisionArtifactRole.CLIP_EMBEDDING_SIDECAR -> extension == "json"
             VisionArtifactRole.VLM_MAIN_MODEL -> extension == "gguf"
             VisionArtifactRole.VLM_MMPROJ -> extension == "mmproj" || extension == "gguf"
@@ -296,6 +309,7 @@ object VisionModelImportPresenter {
         val formats = input.artifacts.map { artifact ->
             when (artifact.role) {
                 VisionArtifactRole.VLM_MMPROJ -> "mmproj"
+                VisionArtifactRole.CLIP_TOKENIZER -> "tokenizer"
                 VisionArtifactRole.CLIP_EMBEDDING_SIDECAR -> "JSON sidecar"
                 else -> artifact.fileName.extensionLower().uppercase(Locale.US)
             }
@@ -305,7 +319,9 @@ object VisionModelImportPresenter {
 
     private fun inferRuntime(input: VisionModelPackageInput): String {
         val coreExtension = input.artifacts.firstOrNull {
-            it.role != VisionArtifactRole.CLIP_EMBEDDING_SIDECAR && it.role != VisionArtifactRole.VLM_MMPROJ
+            it.role != VisionArtifactRole.CLIP_EMBEDDING_SIDECAR &&
+                it.role != VisionArtifactRole.CLIP_TOKENIZER &&
+                it.role != VisionArtifactRole.VLM_MMPROJ
         }?.fileName?.extensionLower()
         return when (coreExtension) {
             "onnx", "ort" -> "ONNX Runtime Mobile"
@@ -410,6 +426,10 @@ object VisionModelImportCatalog {
         val slot: VisionModelSlot
         val role: VisionArtifactRole
         when {
+            lower in setOf("vocab.json", "merges.txt", "tokenizer_config.json") -> {
+                slot = VisionModelSlot.CLIP_RETRIEVAL
+                role = VisionArtifactRole.CLIP_TOKENIZER
+            }
             ("yolo" in lower || "detect" in lower) && ("seg" in lower || "mask" in lower) -> {
                 slot = VisionModelSlot.YOLO_SEGMENT
                 role = VisionArtifactRole.YOLO_MODEL

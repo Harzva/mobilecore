@@ -389,16 +389,20 @@ class LocalMultimodalApiSmokeTest {
 
         override fun loadModel(modelPath: String, options: LoadOptions): LoadResult {
             activeModel = File(modelPath).nameWithoutExtension
+            activeModelArtifactPath = File(modelPath).canonicalPath
             return LoadResult(true, requireNotNull(activeModel), 1, 8)
         }
 
         override fun unloadModel(): Boolean {
             activeModel = null
+            activeModelArtifactPath = null
             activeProjector = null
+            activeProjectorArtifactPath = null
             return true
         }
 
         override fun isModelLoaded() = activeModel != null
+        override fun activeModelPath() = activeModelArtifactPath
 
         override fun chat(messages: List<ChatMessage>, options: ChatOptions): ChatResult {
             if (blockNextTextChat) {
@@ -429,7 +433,9 @@ class LocalMultimodalApiSmokeTest {
 
         override fun metrics() = RuntimeMetrics(activeModel = activeModel, backend = "instrumented-fake")
 
+        private var activeModelArtifactPath: String? = null
         private var activeProjector: String? = null
+        private var activeProjectorArtifactPath: String? = null
 
         override fun loadProjector(
             projectorPath: String,
@@ -437,11 +443,13 @@ class LocalMultimodalApiSmokeTest {
             threads: Int,
         ): Boolean {
             activeProjector = projectorId.takeIf { projectorLoadOk }
+            activeProjectorArtifactPath = File(projectorPath).canonicalPath.takeIf { projectorLoadOk }
             return projectorLoadOk
         }
 
         override fun multimodalStatus() = RuntimeMultimodalStatus(
             projectorId = activeProjector,
+            projectorPath = activeProjectorArtifactPath,
             imageInput = activeProjector != null,
         )
 

@@ -15,6 +15,8 @@ enum class OmniArtifactFailureCode(val wireValue: String) {
     LICENSE_ACCEPTANCE_REQUIRED("license_acceptance_required"),
     WIFI_REQUIRED("wifi_required"),
     MANIFEST_INVALID("manifest_invalid"),
+    SOURCE_MISMATCH("source_mismatch"),
+    ATOMIC_INSTALL_FAILED("atomic_install_failed"),
     DOWNLOAD_FAILED("download_failed"),
     INSTALL_IN_PROGRESS("install_in_progress")
 }

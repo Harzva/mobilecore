@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
+import android.text.InputType
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
@@ -94,7 +96,7 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             setPadding(0, dp(5), 0, dp(7))
         })
         addView(TextView(context).apply {
-            text = "CLIP 负责快速召回，模糊结果可由 G2D 小模型在候选集内复核。"
+            text = "当前由 CLIP 在本机按余弦相似度召回；G2D 小模型复核将在后续版本启用。"
             textSize = 14f
             setTextColor(Palette.ink)
             setLineSpacing(0f, 1.18f)
@@ -181,13 +183,35 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
                 when (status.action) {
                     GalleryStatusAction.REQUEST_ACCESS -> actions.requestGalleryAccess()
                     GalleryStatusAction.RETRY_INDEX -> actions.retryGalleryIndex()
+                    GalleryStatusAction.CANCEL_INDEX -> actions.cancelGalleryIndex()
+                    GalleryStatusAction.CLEAR_INDEX -> actions.clearGalleryIndex()
                     GalleryStatusAction.PREPARE_MODELS -> actions.prepareSearchModels()
+                    GalleryStatusAction.RELEASE_MODELS -> actions.releaseSearchModels()
+                    GalleryStatusAction.SELECT_MORE_PHOTOS -> actions.requestGalleryAccess()
                     null -> Unit
                 }
             }, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(TuiMaTheme.minimumTouchTargetDp),
             ).apply { topMargin = dp(13) })
+        }
+
+        status.secondaryActionLabel?.let { label ->
+            addView(secondaryButton(label, status.secondaryActionEnabled) {
+                when (status.secondaryAction) {
+                    GalleryStatusAction.REQUEST_ACCESS -> actions.requestGalleryAccess()
+                    GalleryStatusAction.RETRY_INDEX -> actions.retryGalleryIndex()
+                    GalleryStatusAction.CANCEL_INDEX -> actions.cancelGalleryIndex()
+                    GalleryStatusAction.CLEAR_INDEX -> actions.clearGalleryIndex()
+                    GalleryStatusAction.PREPARE_MODELS -> actions.prepareSearchModels()
+                    GalleryStatusAction.RELEASE_MODELS -> actions.releaseSearchModels()
+                    GalleryStatusAction.SELECT_MORE_PHOTOS -> actions.requestGalleryAccess()
+                    null -> Unit
+                }
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(TuiMaTheme.minimumTouchTargetDp),
+            ).apply { topMargin = dp(8) })
         }
     }
 
@@ -214,7 +238,13 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             setHintTextColor(Palette.muted)
             isEnabled = model.queryEnabled
             isSingleLine = true
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            imeOptions = EditorInfo.IME_ACTION_SEARCH or
+                EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING or
+                EditorInfo.IME_FLAG_NO_EXTRACT_UI
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+            isSaveEnabled = false
+            setAutofillHints()
             background = rounded(
                 color = if (model.queryEnabled) Palette.surface else Palette.background,
                 stroke = if (model.queryEnabled) Palette.blue else Palette.stroke,
@@ -222,15 +252,13 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             )
             setPadding(dp(15), 0, dp(15), 0)
             contentDescription = "照片搜索描述"
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    actions.updateGalleryQuery(s?.toString().orEmpty())
-                }
-            })
             setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_SEARCH && model.searchEnabled) {
+                if (
+                    actionId == EditorInfo.IME_ACTION_SEARCH &&
+                    model.queryEnabled &&
+                    !model.isSearching &&
+                    text.toString().isNotBlank()
+                ) {
                     performSearch(model.copy(query = text.toString()), actions)
                     true
                 } else {
@@ -243,9 +271,21 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             dp(52),
         ))
 
-        addView(primaryButton(model.searchActionLabel, model.searchEnabled) {
+        val searchButton = primaryButton(model.searchActionLabel, model.searchEnabled) {
             performSearch(model.copy(query = queryInput.text.toString()), actions)
-        }, LinearLayout.LayoutParams(
+        }
+        queryInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val query = s?.toString().orEmpty()
+                actions.updateGalleryQuery(query)
+                searchButton.applyPrimaryEnabled(
+                    model.queryEnabled && !model.isSearching && query.isNotBlank(),
+                )
+            }
+        })
+        addView(searchButton, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             dp(52),
         ).apply { topMargin = dp(10) })
@@ -333,7 +373,7 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ))
             addView(TextView(context).apply {
-                text = "CLIP 直出表示相似度达到阈值；G2D 复核表示小模型仅在候选照片中完成判别。"
+                text = "CLIP 直出表示按余弦相似度排序，不代表通过校准阈值；只有标记为 G2D 复核的结果才经过小模型判别。"
                 textSize = 12f
                 setTextColor(Palette.muted)
                 setLineSpacing(0f, 1.16f)
@@ -389,6 +429,7 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             text = result.title
             textSize = 14f
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             setTextColor(Palette.deepInk)
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(2), dp(9), dp(2), 0)
@@ -397,6 +438,7 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
             text = result.subtitle
             textSize = 11f
             maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             setTextColor(Palette.muted)
             setPadding(dp(2), dp(2), dp(2), 0)
         })
@@ -442,18 +484,45 @@ class GallerySearchScreen(context: Context) : LinearLayout(context) {
         text = label
         textSize = 14f
         isAllCaps = false
-        isEnabled = enabled
-        setTextColor(if (enabled) Color.WHITE else Palette.muted)
         setTypeface(typeface, Typeface.BOLD)
         backgroundTintList = null
+        stateListAnimator = null
+        contentDescription = label
+        applyPrimaryEnabled(enabled)
+        setOnClickListener { onClick() }
+    }
+
+    private fun secondaryButton(label: String, enabled: Boolean, onClick: () -> Unit): Button = Button(context).apply {
+        text = label
+        textSize = 14f
+        isAllCaps = false
+        setTypeface(typeface, Typeface.BOLD)
+        backgroundTintList = null
+        stateListAnimator = null
+        contentDescription = label
+        applySecondaryEnabled(enabled)
+        setOnClickListener { if (isEnabled) onClick() }
+    }
+
+    private fun Button.applyPrimaryEnabled(enabled: Boolean) {
+        isEnabled = enabled
+        setTextColor(if (enabled) Color.WHITE else Palette.muted)
         background = rounded(
             if (enabled) Palette.blue else Palette.surface,
             if (enabled) Palette.blue else Palette.stroke,
             12f,
         )
-        stateListAnimator = null
-        contentDescription = label
-        setOnClickListener { onClick() }
+    }
+
+    private fun Button.applySecondaryEnabled(enabled: Boolean) {
+        isEnabled = enabled
+        alpha = if (enabled) 1f else 0.62f
+        setTextColor(if (enabled) Palette.blue else Palette.muted)
+        background = rounded(
+            Palette.surface,
+            if (enabled) Palette.blue else Palette.stroke,
+            12f,
+        )
     }
 
     private fun rounded(color: Int, stroke: Int, radiusDp: Float): GradientDrawable =

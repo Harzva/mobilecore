@@ -51,14 +51,35 @@ class VisionModelImportPresenterTest {
                 slot = VisionModelSlot.CLIP_RETRIEVAL,
                 artifacts = listOf(
                     VisionModelArtifact("mobileclip-image.onnx", VisionArtifactRole.CLIP_IMAGE_ENCODER),
-                    VisionModelArtifact("mobileclip-text.onnx", VisionArtifactRole.CLIP_TEXT_ENCODER)
+                    VisionModelArtifact("mobileclip-text.onnx", VisionArtifactRole.CLIP_TEXT_ENCODER),
+                    VisionModelArtifact("vocab.json", VisionArtifactRole.CLIP_TOKENIZER),
+                    VisionModelArtifact("merges.txt", VisionArtifactRole.CLIP_TOKENIZER),
+                    VisionModelArtifact("tokenizer_config.json", VisionArtifactRole.CLIP_TOKENIZER),
                 )
             )
         )
 
         assertEquals(VisionPackageStatus.READY, model.status)
         assertTrue(model.statusDetail.contains("开放文本检索"))
-        assertEquals(2, model.artifactLabels.size)
+        assertEquals(5, model.artifactLabels.size)
+    }
+
+    @Test
+    fun `clip text encoder without tokenizer remains incomplete`() {
+        val model = VisionModelImportPresenter.presentPackage(
+            VisionModelPackageInput(
+                id = "clip-missing-tokenizer",
+                slot = VisionModelSlot.CLIP_RETRIEVAL,
+                artifacts = listOf(
+                    VisionModelArtifact("mobileclip-image.onnx", VisionArtifactRole.CLIP_IMAGE_ENCODER),
+                    VisionModelArtifact("mobileclip-text.onnx", VisionArtifactRole.CLIP_TEXT_ENCODER),
+                ),
+            ),
+        )
+
+        assertEquals(VisionPackageStatus.MISSING_FILES, model.status)
+        assertTrue(model.statusDetail.contains("vocab.json"))
+        assertTrue(model.statusDetail.contains("merges.txt"))
     }
 
     @Test
@@ -163,6 +184,9 @@ class VisionModelImportPresenterTest {
             "yolo11n-seg.tflite",
             "mobileclip-image.onnx",
             "mobileclip-text.onnx",
+            "vocab.json",
+            "merges.txt",
+            "tokenizer_config.json",
             "qwen35-08b.gguf",
             "mmproj-qwen35.gguf"
         ).forEach { temporaryFolder.newFile(it) }
@@ -172,7 +196,7 @@ class VisionModelImportPresenterTest {
 
         assertEquals(1, packages.getValue(VisionModelSlot.YOLO_DETECT).artifacts.size)
         assertEquals(1, packages.getValue(VisionModelSlot.YOLO_SEGMENT).artifacts.size)
-        assertEquals(2, packages.getValue(VisionModelSlot.CLIP_RETRIEVAL).artifacts.size)
+        assertEquals(5, packages.getValue(VisionModelSlot.CLIP_RETRIEVAL).artifacts.size)
         assertEquals(
             setOf(VisionArtifactRole.VLM_MAIN_MODEL, VisionArtifactRole.VLM_MMPROJ),
             packages.getValue(VisionModelSlot.SMALL_VLM).artifacts.map { it.role }.toSet()

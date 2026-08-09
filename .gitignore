@@ -39,8 +39,16 @@ reference/
 # Historical generated design backups; final assets remain in design-assets/ and docs/readme-assets/.
 design-assets/backup/
 
-# Internal transfer notes from planning sessions.
-docs/evidence/
+# Internal transfer notes from planning sessions. Only the exact sanitized, reproducible reports
+# allowlisted below are public evidence; every other evidence artifact remains local.
+docs/evidence/*
+!docs/evidence/gallery-search/
+docs/evidence/gallery-search/*
+!docs/evidence/gallery-search/oxford-pets-gallery-smoke-emulator.json
+!docs/evidence/gallery-search/oxford-pets-gallery-pilot-emulator.json
+!docs/evidence/playground-install/
+docs/evidence/playground-install/*
+!docs/evidence/playground-install/qwen3-0.6b-rc9-emulator.json
 .codex-team/
 HANDOFF.md
 tmp/

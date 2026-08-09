@@ -9,27 +9,36 @@ interface GalleryMediaAccessContract {
     fun requestGalleryAccess()
     fun scanGrantedMedia()
     fun retryGalleryIndex()
+    fun cancelGalleryIndex()
+    fun clearGalleryIndex()
 }
 
 /** Host boundary for model preparation and retrieval. */
 interface GallerySearchRuntimeContract {
     fun prepareSearchModels()
+    fun releaseSearchModels()
     fun searchLocalGallery(query: String, topK: Int)
 }
 
 sealed interface GalleryIndexState {
     data object PermissionRequired : GalleryIndexState
 
+    data class AccessGranted(
+        val persistedIndexDetected: Boolean = false,
+    ) : GalleryIndexState
+
     data class Scanning(val discoveredCount: Int = 0) : GalleryIndexState
 
     data class Indexing(
         val processedCount: Int,
         val totalCount: Int,
+        val skippedCount: Int = 0,
     ) : GalleryIndexState
 
     data class Ready(
         val indexedCount: Int,
         val lastIndexedAtMs: Long? = null,
+        val skippedCount: Int = 0,
     ) : GalleryIndexState
 
     data class Failed(
@@ -53,6 +62,12 @@ sealed interface GalleryModelState {
         val clipImageEncoder: String,
         val clipTextEncoder: String,
         val verifierModel: String? = null,
+        val modelId: String = "user-imported/clip-compatible",
+        val identityVerified: Boolean = false,
+    ) : GalleryModelState
+
+    data class Released(
+        val reason: String,
     ) : GalleryModelState
 
     data class Failed(
@@ -103,6 +118,7 @@ data class GallerySearchState(
     val models: GalleryModelState = GalleryModelState.Missing(),
     val query: String = "",
     val retrieval: GalleryRetrievalState = GalleryRetrievalState.Idle,
+    val limitedPhotoAccess: Boolean = false,
 ) {
     val isIndexReady: Boolean
         get() = (index as? GalleryIndexState.Ready)?.indexedCount?.let { it > 0 } == true
@@ -116,11 +132,23 @@ data class GallerySearchState(
 
 sealed interface GallerySearchEvent {
     data object AccessGranted : GallerySearchEvent
+    data class AccessAvailable(val persistedIndexDetected: Boolean) : GallerySearchEvent
     data object AccessRevoked : GallerySearchEvent
+    data class PhotoAccessScopeChanged(val limited: Boolean) : GallerySearchEvent
     data class ScanProgress(val discoveredCount: Int) : GallerySearchEvent
     data class ScanCompleted(val totalCount: Int, val completedAtMs: Long? = null) : GallerySearchEvent
-    data class IndexProgress(val processedCount: Int, val totalCount: Int) : GallerySearchEvent
-    data class IndexCompleted(val indexedCount: Int, val completedAtMs: Long) : GallerySearchEvent
+    data class IndexProgress(
+        val processedCount: Int,
+        val totalCount: Int,
+        val skippedCount: Int = 0,
+    ) : GallerySearchEvent
+    data class IndexCompleted(
+        val indexedCount: Int,
+        val completedAtMs: Long,
+        val skippedCount: Int = 0,
+    ) : GallerySearchEvent
+    data class IndexRestored(val indexedCount: Int, val completedAtMs: Long) : GallerySearchEvent
+    data object IndexCleared : GallerySearchEvent
     data class IndexFailed(val message: String, val retryable: Boolean = true) : GallerySearchEvent
     data object RetryIndex : GallerySearchEvent
 
@@ -133,7 +161,10 @@ sealed interface GallerySearchEvent {
         val clipImageEncoder: String,
         val clipTextEncoder: String,
         val verifierModel: String? = null,
+        val modelId: String = "user-imported/clip-compatible",
+        val identityVerified: Boolean = false,
     ) : GallerySearchEvent
+    data class ModelsReleased(val reason: String) : GallerySearchEvent
     data class ModelPreparationFailed(
         val message: String,
         val retryable: Boolean = true,
@@ -156,9 +187,17 @@ object GallerySearchStateMachine {
             index = GalleryIndexState.Scanning(),
             retrieval = GalleryRetrievalState.Idle,
         )
+        is GallerySearchEvent.AccessAvailable -> state.copy(
+            index = GalleryIndexState.AccessGranted(event.persistedIndexDetected),
+            retrieval = GalleryRetrievalState.Idle,
+        )
         GallerySearchEvent.AccessRevoked -> state.copy(
             index = GalleryIndexState.PermissionRequired,
             retrieval = GalleryRetrievalState.Idle,
+            limitedPhotoAccess = false,
+        )
+        is GallerySearchEvent.PhotoAccessScopeChanged -> state.copy(
+            limitedPhotoAccess = event.limited,
         )
         is GallerySearchEvent.ScanProgress -> if (state.index is GalleryIndexState.Scanning) {
             state.copy(index = GalleryIndexState.Scanning(event.discoveredCount.coerceAtLeast(0)))
@@ -180,6 +219,7 @@ object GallerySearchStateMachine {
                 index = GalleryIndexState.Indexing(
                     processedCount = event.processedCount.coerceIn(0, total),
                     totalCount = total,
+                    skippedCount = event.skippedCount.coerceIn(0, event.processedCount.coerceAtLeast(0)),
                 ),
             )
         } else {
@@ -187,19 +227,35 @@ object GallerySearchStateMachine {
         }
         is GallerySearchEvent.IndexCompleted -> if (state.index is GalleryIndexState.Indexing) {
             state.copy(
-                index = GalleryIndexState.Ready(event.indexedCount.coerceAtLeast(0), event.completedAtMs),
+                index = GalleryIndexState.Ready(
+                    event.indexedCount.coerceAtLeast(0),
+                    event.completedAtMs,
+                    event.skippedCount.coerceAtLeast(0),
+                ),
                 retrieval = GalleryRetrievalState.Idle,
             )
         } else {
             state
         }
+        is GallerySearchEvent.IndexRestored -> state.copy(
+            index = GalleryIndexState.Ready(
+                indexedCount = event.indexedCount.coerceAtLeast(0),
+                lastIndexedAtMs = event.completedAtMs.coerceAtLeast(0L),
+            ),
+            retrieval = GalleryRetrievalState.Idle,
+        )
+        GallerySearchEvent.IndexCleared -> state.copy(
+            index = GalleryIndexState.AccessGranted(persistedIndexDetected = false),
+            retrieval = GalleryRetrievalState.Idle,
+        )
         is GallerySearchEvent.IndexFailed -> state.copy(
             index = GalleryIndexState.Failed(event.message, event.retryable),
             retrieval = GalleryRetrievalState.Idle,
         )
         GallerySearchEvent.RetryIndex -> if (
             (state.index is GalleryIndexState.Failed && state.index.retryable) ||
-            state.index is GalleryIndexState.Ready
+            state.index is GalleryIndexState.Ready ||
+            state.index is GalleryIndexState.AccessGranted
         ) {
             state.copy(index = GalleryIndexState.Scanning(), retrieval = GalleryRetrievalState.Idle)
         } else {
@@ -224,7 +280,13 @@ object GallerySearchStateMachine {
                 clipImageEncoder = event.clipImageEncoder,
                 clipTextEncoder = event.clipTextEncoder,
                 verifierModel = event.verifierModel,
+                modelId = event.modelId,
+                identityVerified = event.identityVerified,
             ),
+        )
+        is GallerySearchEvent.ModelsReleased -> state.copy(
+            models = GalleryModelState.Released(event.reason),
+            retrieval = GalleryRetrievalState.Idle,
         )
         is GallerySearchEvent.ModelPreparationFailed -> state.copy(
             models = GalleryModelState.Failed(event.message, event.retryable),
@@ -271,7 +333,11 @@ object GallerySearchStateMachine {
 enum class GalleryStatusAction {
     REQUEST_ACCESS,
     RETRY_INDEX,
+    CANCEL_INDEX,
+    CLEAR_INDEX,
     PREPARE_MODELS,
+    RELEASE_MODELS,
+    SELECT_MORE_PHOTOS,
 }
 
 data class GalleryStatusUiModel(
@@ -282,6 +348,9 @@ data class GalleryStatusUiModel(
     val actionLabel: String? = null,
     val action: GalleryStatusAction? = null,
     val actionEnabled: Boolean = true,
+    val secondaryActionLabel: String? = null,
+    val secondaryAction: GalleryStatusAction? = null,
+    val secondaryActionEnabled: Boolean = true,
     val isSuccess: Boolean = false,
     val isBusy: Boolean = false,
 )
@@ -341,36 +410,56 @@ object GallerySearchPresenter {
                 !state.canSearch -> "索引与 CLIP 模型就绪后，即可用自然语言搜索照片。"
                 else -> "试试“海边穿红衣服的人”或“有柱状图的会议照片”。"
             }
-            is GalleryRetrievalState.Searching -> "正在从本机向量索引召回候选，并按需进行 G2D 复核。"
-            is GalleryRetrievalState.Results -> "“${retrieval.query}”找到 ${ranked.size} 个最相关结果"
-            is GalleryRetrievalState.NoMatch -> "没有找到与“${retrieval.query}”足够相关的照片。"
+            is GalleryRetrievalState.Searching -> "正在从本机向量索引计算 CLIP 余弦相似度。"
+            is GalleryRetrievalState.Results -> "“${retrieval.query}”返回余弦相似度最高的 ${ranked.size} 个候选"
+            is GalleryRetrievalState.NoMatch -> "本机索引没有返回可排序的候选照片。"
             is GalleryRetrievalState.Failed -> retrieval.message
         }
         return GallerySearchUiModel(
-            indexStatus = indexStatus(state.index),
+            indexStatus = indexStatus(state.index, state.limitedPhotoAccess),
             modelStatus = modelStatus(state.models),
             query = state.query,
             queryEnabled = state.canSearch && !isSearching,
             searchEnabled = state.canSearch && state.query.isNotBlank() && !isSearching,
             searchActionLabel = if (isSearching) "正在搜索" else "搜索本机照片",
-            searchHint = if (state.canSearch) "描述人物、物体、场景或照片中的文字" else "先完成相册索引与模型准备",
+            searchHint = if (state.canSearch) "描述人物、物体、动物、颜色或场景" else "先完成相册索引与模型准备",
             resultTitle = if (ranked.isNotEmpty()) "Top-${ranked.size} 结果" else if (resultQuery.isNotEmpty()) "搜索结果" else "开始搜索",
             resultMessage = resultMessage,
             results = ranked,
             isSearching = isSearching,
             showNoMatch = noMatch,
-            privacyLabel = "完全本机处理 · 照片与查询不上传",
+            privacyLabel = "MobileCore 不上传照片、查询或索引",
             topK = safeTopK,
         )
     }
 
-    private fun indexStatus(state: GalleryIndexState): GalleryStatusUiModel = when (state) {
+    private fun indexStatus(
+        state: GalleryIndexState,
+        limitedPhotoAccess: Boolean,
+    ): GalleryStatusUiModel = when (state) {
         GalleryIndexState.PermissionRequired -> GalleryStatusUiModel(
             eyebrow = "相册索引 · 未授权",
             title = "允许访问后建立本机索引",
             detail = "只读取你授权的照片；原图、向量和查询都留在本机。",
             actionLabel = "授权并建立索引",
             action = GalleryStatusAction.REQUEST_ACCESS,
+        )
+        is GalleryIndexState.AccessGranted -> GalleryStatusUiModel(
+            eyebrow = "相册索引 · 已授权",
+            title = if (state.persistedIndexDetected) "发现待验证的本机索引" else "尚未建立照片索引",
+            detail = if (state.persistedIndexDetected) {
+                "准备 CLIP 后会校验并恢复已有索引；模型变化时必须重新建立。"
+            } else {
+                "扫描已授权照片并生成本机向量，过程中可随时取消并续建。"
+            },
+            actionLabel = if (limitedPhotoAccess) "选择更多并建立索引" else "建立照片索引",
+            action = if (limitedPhotoAccess) {
+                GalleryStatusAction.SELECT_MORE_PHOTOS
+            } else {
+                GalleryStatusAction.RETRY_INDEX
+            },
+            secondaryActionLabel = if (state.persistedIndexDetected) "清除已有索引" else null,
+            secondaryAction = if (state.persistedIndexDetected) GalleryStatusAction.CLEAR_INDEX else null,
         )
         is GalleryIndexState.Scanning -> GalleryStatusUiModel(
             eyebrow = "相册索引 · 扫描中",
@@ -388,8 +477,13 @@ object GallerySearchPresenter {
             GalleryStatusUiModel(
                 eyebrow = "相册索引 · 索引中",
                 title = "正在生成图像向量",
-                detail = "${state.processedCount} / ${state.totalCount} 张 · $progress%",
+                detail = buildString {
+                    append("${state.processedCount} / ${state.totalCount} 张 · $progress%")
+                    if (state.skippedCount > 0) append(" · 已跳过 ${state.skippedCount} 张")
+                },
                 progressPercent = progress,
+                actionLabel = "取消并保存进度",
+                action = GalleryStatusAction.CANCEL_INDEX,
                 isBusy = true,
             )
         }
@@ -397,12 +491,25 @@ object GallerySearchPresenter {
             eyebrow = "相册索引 · 已就绪",
             title = if (state.indexedCount > 0) "${state.indexedCount} 张照片可搜索" else "暂时没有可搜索照片",
             detail = if (state.indexedCount > 0) {
-                "新增照片可在后台增量更新，不需要上传云端。"
+                buildString {
+                    append("可增量更新；照片和向量不会上传云端。")
+                    if (state.skippedCount > 0) append(" 本次跳过 ${state.skippedCount} 张无法读取的照片。")
+                }
             } else {
                 "授权更多照片后重新建立索引。"
             },
-            actionLabel = if (state.indexedCount == 0) "重新扫描" else null,
-            action = if (state.indexedCount == 0) GalleryStatusAction.RETRY_INDEX else null,
+            actionLabel = when {
+                limitedPhotoAccess -> "选择更多并更新索引"
+                state.indexedCount == 0 -> "重新扫描"
+                else -> "更新索引"
+            },
+            action = if (limitedPhotoAccess) {
+                GalleryStatusAction.SELECT_MORE_PHOTOS
+            } else {
+                GalleryStatusAction.RETRY_INDEX
+            },
+            secondaryActionLabel = "清除索引",
+            secondaryAction = GalleryStatusAction.CLEAR_INDEX,
             isSuccess = state.indexedCount > 0,
         )
         is GalleryIndexState.Failed -> GalleryStatusUiModel(
@@ -431,17 +538,35 @@ object GallerySearchPresenter {
             isBusy = true,
         )
         is GalleryModelState.Ready -> GalleryStatusUiModel(
-            eyebrow = "搜索模型 · 已就绪",
+            eyebrow = if (state.identityVerified) {
+                "搜索模型 · 已就绪 · 身份已验证"
+            } else {
+                "搜索模型 · 已就绪 · 身份未验证"
+            },
             title = if (state.verifierModel == null) "CLIP 检索已就绪" else "CLIP + G2D 已就绪",
             detail = buildString {
                 append("图像：${state.clipImageEncoder} · 文本：${state.clipTextEncoder}")
+                if (state.identityVerified) {
+                    append(" · 身份已验证：${state.modelId}")
+                } else {
+                    append(" · 身份未验证：用户导入的 CLIP 兼容模型")
+                }
                 if (state.verifierModel == null) {
                     append(" · G2D 复核未启用")
                 } else {
                     append(" · 复核：${state.verifierModel}")
                 }
             },
+            actionLabel = "释放模型内存",
+            action = GalleryStatusAction.RELEASE_MODELS,
             isSuccess = true,
+        )
+        is GalleryModelState.Released -> GalleryStatusUiModel(
+            eyebrow = "搜索模型 · 已释放",
+            title = "CLIP 文件仍在本机",
+            detail = state.reason,
+            actionLabel = "重新加载搜索模型",
+            action = GalleryStatusAction.PREPARE_MODELS,
         )
         is GalleryModelState.Failed -> GalleryStatusUiModel(
             eyebrow = "搜索模型 · 失败",
@@ -459,13 +584,13 @@ object GallerySearchPresenter {
         contentUri = contentUri,
         title = title,
         subtitle = subtitle,
-        scoreLabel = "相关度 ${(similarity.coerceIn(0.0, 1.0) * 100).toInt()}%",
+        scoreLabel = "余弦 ${String.format(java.util.Locale.US, "%.3f", similarity)}",
         sourceLabel = when (source) {
             GalleryResultSource.CLIP_DIRECT -> "CLIP 直出"
             GalleryResultSource.G2D_VERIFIED -> "G2D 复核"
         },
         sourceDetail = when (source) {
-            GalleryResultSource.CLIP_DIRECT -> "相似度达到直出阈值"
+            GalleryResultSource.CLIP_DIRECT -> "由 CLIP 余弦相似度排序，未应用校准阈值"
             GalleryResultSource.G2D_VERIFIED -> "小模型已在候选集内复核"
         },
         source = source,

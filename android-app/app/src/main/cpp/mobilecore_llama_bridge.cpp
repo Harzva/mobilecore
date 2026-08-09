@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <sstream>
 #include <string>
@@ -26,6 +27,115 @@ int32_t g_last_prompt_tokens = 0;
 int32_t g_last_completion_tokens = 0;
 long long g_last_memory_mb = 0;
 std::atomic<bool> g_cancel_requested{false};
+
+constexpr uint32_t kReplacementCharacter = 0xFFFD;
+
+void append_utf8(std::string& output, uint32_t code_point) {
+    if (code_point <= 0x7F) {
+        output.push_back(static_cast<char>(code_point));
+    } else if (code_point <= 0x7FF) {
+        output.push_back(static_cast<char>(0xC0 | (code_point >> 6)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    } else if (code_point <= 0xFFFF) {
+        output.push_back(static_cast<char>(0xE0 | (code_point >> 12)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    } else {
+        output.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+    }
+}
+
+std::string jstring_to_utf8(JNIEnv* env, jstring value) {
+    if (value == nullptr) return {};
+    const jsize length = env->GetStringLength(value);
+    const jchar* chars = env->GetStringChars(value, nullptr);
+    if (chars == nullptr) return {};
+
+    std::string output;
+    output.reserve(static_cast<size_t>(length) * 3);
+    for (jsize index = 0; index < length; ++index) {
+        uint32_t code_point = chars[index];
+        if (code_point >= 0xD800 && code_point <= 0xDBFF) {
+            if (index + 1 < length) {
+                const uint32_t low = chars[index + 1];
+                if (low >= 0xDC00 && low <= 0xDFFF) {
+                    code_point = 0x10000 + ((code_point - 0xD800) << 10) + (low - 0xDC00);
+                    ++index;
+                } else {
+                    code_point = kReplacementCharacter;
+                }
+            } else {
+                code_point = kReplacementCharacter;
+            }
+        } else if (code_point >= 0xDC00 && code_point <= 0xDFFF) {
+            code_point = kReplacementCharacter;
+        }
+        append_utf8(output, code_point);
+    }
+    env->ReleaseStringChars(value, chars);
+    return output;
+}
+
+bool is_utf8_continuation(uint8_t byte) {
+    return (byte & 0xC0) == 0x80;
+}
+
+void append_utf16(std::vector<jchar>& output, uint32_t code_point) {
+    if (code_point <= 0xFFFF) {
+        output.push_back(static_cast<jchar>(code_point));
+        return;
+    }
+    code_point -= 0x10000;
+    output.push_back(static_cast<jchar>(0xD800 + (code_point >> 10)));
+    output.push_back(static_cast<jchar>(0xDC00 + (code_point & 0x3FF)));
+}
+
+jstring utf8_to_jstring(JNIEnv* env, const std::string& value) {
+    std::vector<jchar> output;
+    output.reserve(value.size());
+    const auto* bytes = reinterpret_cast<const uint8_t*>(value.data());
+    size_t index = 0;
+    while (index < value.size()) {
+        const uint8_t first = bytes[index];
+        uint32_t code_point = kReplacementCharacter;
+        size_t width = 1;
+        if (first <= 0x7F) {
+            code_point = first;
+        } else if (first >= 0xC2 && first <= 0xDF && index + 1 < value.size() &&
+                   is_utf8_continuation(bytes[index + 1])) {
+            code_point = ((first & 0x1F) << 6) | (bytes[index + 1] & 0x3F);
+            width = 2;
+        } else if (first >= 0xE0 && first <= 0xEF && index + 2 < value.size() &&
+                   is_utf8_continuation(bytes[index + 1]) &&
+                   is_utf8_continuation(bytes[index + 2]) &&
+                   !(first == 0xE0 && bytes[index + 1] < 0xA0) &&
+                   !(first == 0xED && bytes[index + 1] >= 0xA0)) {
+            code_point = ((first & 0x0F) << 12) |
+                ((bytes[index + 1] & 0x3F) << 6) |
+                (bytes[index + 2] & 0x3F);
+            width = 3;
+        } else if (first >= 0xF0 && first <= 0xF4 && index + 3 < value.size() &&
+                   is_utf8_continuation(bytes[index + 1]) &&
+                   is_utf8_continuation(bytes[index + 2]) &&
+                   is_utf8_continuation(bytes[index + 3]) &&
+                   !(first == 0xF0 && bytes[index + 1] < 0x90) &&
+                   !(first == 0xF4 && bytes[index + 1] >= 0x90)) {
+            code_point = ((first & 0x07) << 18) |
+                ((bytes[index + 1] & 0x3F) << 12) |
+                ((bytes[index + 2] & 0x3F) << 6) |
+                (bytes[index + 3] & 0x3F);
+            width = 4;
+        }
+        append_utf16(output, code_point);
+        index += width;
+    }
+
+    const jchar empty = 0;
+    return env->NewString(output.empty() ? &empty : output.data(), static_cast<jsize>(output.size()));
+}
 
 #ifdef MOBILECORE_USE_LLAMA_CPP
 bool g_backend_initialized = false;
@@ -293,6 +403,15 @@ std::string format_mtmd_user_prompt(const std::string& user_prompt) {
 extern "C" {
 
 JNIEXPORT jstring JNICALL
+Java_ai_mobilecore_runtime_RuntimeBridge_nativeRoundTripUtf8ForTest(
+    JNIEnv* env,
+    jobject /* this */,
+    jstring value
+) {
+    return utf8_to_jstring(env, jstring_to_utf8(env, value));
+}
+
+JNIEXPORT jstring JNICALL
 Java_ai_mobilecore_runtime_RuntimeBridge_nativeBackendInfo(JNIEnv* env, jobject /* this */) {
     std::ostringstream json;
     json << "{"
@@ -345,7 +464,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeBackendInfo(JNIEnv* env, jobject 
 #endif
          << "\""
          << "}";
-    return env->NewStringUTF(json.str().c_str());
+    return utf8_to_jstring(env, json.str());
 }
 
 JNIEXPORT jstring JNICALL
@@ -358,16 +477,12 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadMtmdProjector(
     jint imageMaxTokens
 ) {
 #ifdef MOBILECORE_USE_LLAMA_CPP
-    const char* projector_path_utf = env->GetStringUTFChars(projectorPath, nullptr);
-    const std::string projector_path = projector_path_utf == nullptr ? "" : projector_path_utf;
-    if (projector_path_utf != nullptr) {
-        env->ReleaseStringUTFChars(projectorPath, projector_path_utf);
-    }
+    const std::string projector_path = jstring_to_utf8(env, projectorPath);
     if (g_model == nullptr || g_context == nullptr) {
-        return env->NewStringUTF("{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"load the text model before the mtmd projector\"}");
+        return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"load the text model before the mtmd projector\"}");
     }
     if (projector_path.empty() || !file_exists(projector_path)) {
-        return env->NewStringUTF("{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"mtmd projector not found\"}");
+        return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"artifact_missing\",\"message\":\"mtmd projector not found\"}");
     }
     if (g_mtmd_context != nullptr) {
         mtmd_free(g_mtmd_context);
@@ -390,7 +505,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadMtmdProjector(
     params.image_max_tokens = std::max(0, static_cast<int32_t>(imageMaxTokens));
     g_mtmd_context = mtmd_init_from_file(projector_path.c_str(), g_model, params);
     if (g_mtmd_context == nullptr) {
-        return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"libmtmd failed to load the projector\"}");
+        return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"libmtmd failed to load the projector\"}");
     }
     g_mtmd_supports_vision = mtmd_support_vision(g_mtmd_context);
     g_mtmd_supports_audio = mtmd_support_audio(g_mtmd_context);
@@ -401,7 +516,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadMtmdProjector(
         }
         g_mtmd_supports_vision = false;
         g_mtmd_supports_audio = false;
-        return env->NewStringUTF("{\"ok\":false,\"code\":\"unsupported_modality\",\"message\":\"mtmd projector exposes neither image nor audio input\"}");
+        return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"unsupported_modality\",\"message\":\"mtmd projector exposes neither image nor audio input\"}");
     }
     g_mmproj_path = projector_path;
     std::ostringstream json;
@@ -412,9 +527,9 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadMtmdProjector(
          << (g_mtmd_supports_audio ? "true" : "false")
          << ",\"audioSampleRate\":" << (g_mtmd_supports_audio ? mtmd_get_audio_sample_rate(g_mtmd_context) : 0)
          << ",\"message\":\"mtmd projector loaded\"}";
-    return env->NewStringUTF(json.str().c_str());
+    return utf8_to_jstring(env, json.str());
 #else
-    return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
+    return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
 #endif
 }
 
@@ -429,36 +544,28 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
     jint maxTokens
 ) {
 #ifdef MOBILECORE_USE_LLAMA_CPP
-    const char* model_id_utf = env->GetStringUTFChars(modelId, nullptr);
-    const char* media_path_utf = env->GetStringUTFChars(mediaPath, nullptr);
-    const char* modality_utf = env->GetStringUTFChars(modality, nullptr);
-    const char* prompt_utf = env->GetStringUTFChars(prompt, nullptr);
-    const std::string requested_model = model_id_utf == nullptr ? g_model_id : model_id_utf;
-    const std::string media_path = media_path_utf == nullptr ? "" : media_path_utf;
-    const std::string requested_modality = modality_utf == nullptr ? "" : modality_utf;
-    const std::string user_prompt = prompt_utf == nullptr ? "" : prompt_utf;
-    if (model_id_utf != nullptr) env->ReleaseStringUTFChars(modelId, model_id_utf);
-    if (media_path_utf != nullptr) env->ReleaseStringUTFChars(mediaPath, media_path_utf);
-    if (modality_utf != nullptr) env->ReleaseStringUTFChars(modality, modality_utf);
-    if (prompt_utf != nullptr) env->ReleaseStringUTFChars(prompt, prompt_utf);
+    const std::string requested_model = modelId == nullptr ? g_model_id : jstring_to_utf8(env, modelId);
+    const std::string media_path = jstring_to_utf8(env, mediaPath);
+    const std::string requested_modality = jstring_to_utf8(env, modality);
+    const std::string user_prompt = jstring_to_utf8(env, prompt);
 
     if (requested_modality != "image" && requested_modality != "audio") {
         const std::string json = chat_json(false, requested_model, "only image or audio input is supported", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     if (g_model == nullptr || g_context == nullptr || g_mtmd_context == nullptr) {
         const std::string json = chat_json(false, requested_model, "model or mtmd projector is not loaded", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "artifact_missing");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     const bool expects_audio = requested_modality == "audio";
     const bool modality_supported = expects_audio ? g_mtmd_supports_audio : g_mtmd_supports_vision;
     if (!modality_supported) {
         const std::string json = chat_json(false, requested_model, requested_modality + " input is not supported by the active mtmd projector", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     if (media_path.empty() || !file_exists(media_path)) {
         const std::string json = chat_json(false, requested_model, "media file is unavailable", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "media_missing");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
 
     g_cancel_requested.store(false, std::memory_order_release);
@@ -466,18 +573,18 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
     mtmd_helper_bitmap_wrapper media = mtmd_helper_bitmap_init_from_file(g_mtmd_context, media_path.c_str(), false);
     if (media.bitmap == nullptr) {
         const std::string json = chat_json(false, requested_model, "libmtmd failed to decode media", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "media_decode_failed");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     if (media.video_ctx != nullptr) {
         mtmd_bitmap_free(media.bitmap);
         mtmd_helper_video_free(media.video_ctx);
         const std::string json = chat_json(false, requested_model, "video input is not supported", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     if (mtmd_bitmap_is_audio(media.bitmap) != expects_audio) {
         mtmd_bitmap_free(media.bitmap);
         const std::string json = chat_json(false, requested_model, "decoded media does not match the declared modality", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "unsupported_modality");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
 
     const std::string formatted = format_mtmd_user_prompt(user_prompt);
@@ -493,7 +600,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
         mtmd_input_chunks_free(chunks);
         mtmd_bitmap_free(media.bitmap);
         const std::string json = chat_json(false, requested_model, "libmtmd prompt tokenization failed", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
 
     const int32_t n_prompt = static_cast<int32_t>(mtmd_helper_get_n_tokens(chunks));
@@ -504,7 +611,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
     mtmd_bitmap_free(media.bitmap);
     if (eval_result != 0) {
         const std::string json = chat_json(false, requested_model, "libmtmd media/prompt evaluation failed", n_prompt, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
     const auto prompt_eval_end = std::chrono::steady_clock::now();
     const long long prompt_eval_ms = elapsed_ms(prompt_eval_start, prompt_eval_end);
@@ -536,7 +643,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
         if (llama_decode(g_context, batch) != 0) {
             llama_sampler_free(sampler);
             const std::string json = chat_json(false, requested_model, "llama.cpp multimodal token decode failed", n_prompt, n_decode, prompt_eval_ms, first_token_ms, 0, 0, 0.0, g_last_memory_mb, "model_load_failed");
-            return env->NewStringUTF(json.c_str());
+            return utf8_to_jstring(env, json);
         }
     }
     const auto decode_end = std::chrono::steady_clock::now();
@@ -554,9 +661,9 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeMediaChat(
     g_last_prompt_tokens = n_prompt;
     g_last_completion_tokens = n_decode;
     const std::string json = chat_json(!cancelled, requested_model, generated, n_prompt, n_decode, prompt_eval_ms, first_token_ms, decode_ms, total_ms, decode_tps, g_last_memory_mb, cancelled ? "cancelled" : "");
-    return env->NewStringUTF(json.c_str());
+    return utf8_to_jstring(env, json);
 #else
-    return env->NewStringUTF("{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
+    return utf8_to_jstring(env, "{\"ok\":false,\"code\":\"model_load_failed\",\"message\":\"llama.cpp is unavailable\"}");
 #endif
 }
 
@@ -568,11 +675,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
     jint contextLength,
     jint threads
 ) {
-    const char* model_path_utf = env->GetStringUTFChars(modelPath, nullptr);
-    g_model_path = model_path_utf == nullptr ? "" : model_path_utf;
-    if (model_path_utf != nullptr) {
-        env->ReleaseStringUTFChars(modelPath, model_path_utf);
-    }
+    g_model_path = jstring_to_utf8(env, modelPath);
 
     g_model_id = model_id_from_path(g_model_path);
 
@@ -587,7 +690,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
              << "\"backend\":\"llama.cpp\","
              << "\"message\":\"model artifact not found\""
              << "}";
-        return env->NewStringUTF(json.str().c_str());
+        return utf8_to_jstring(env, json.str());
     }
 
     ensure_backend_initialized();
@@ -605,7 +708,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
              << "\"backend\":\"llama.cpp\","
              << "\"message\":\"llama_model_load_from_file failed\""
              << "}";
-        return env->NewStringUTF(json.str().c_str());
+        return utf8_to_jstring(env, json.str());
     }
 
     const uint32_t n_ctx = static_cast<uint32_t>(std::max(128, contextLength));
@@ -628,7 +731,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
              << "\"backend\":\"llama.cpp\","
              << "\"message\":\"llama_init_from_model failed\""
              << "}";
-        return env->NewStringUTF(json.str().c_str());
+        return utf8_to_jstring(env, json.str());
     }
 
     g_model_loaded = true;
@@ -644,7 +747,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
          << "\"backend\":\"llama.cpp\","
          << "\"message\":\"llama.cpp model and context loaded\""
          << "}";
-    return env->NewStringUTF(json.str().c_str());
+    return utf8_to_jstring(env, json.str());
 #else
     g_model_loaded = true;
     std::ostringstream json;
@@ -657,7 +760,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeLoadModel(
          << "\"backend\":\"llama.cpp-native-stub\","
          << "\"message\":\"model state loaded in JNI stub; real llama.cpp context is not linked yet\""
          << "}";
-    return env->NewStringUTF(json.str().c_str());
+    return utf8_to_jstring(env, json.str());
 #endif
 }
 
@@ -671,18 +774,10 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
     jfloat temperature
 ) {
     g_cancel_requested.store(false, std::memory_order_release);
-    const char* modelIdUtf = env->GetStringUTFChars(modelId, nullptr);
-    const char* promptUtf = env->GetStringUTFChars(prompt, nullptr);
-
-    const std::string requested_model = modelIdUtf == nullptr ? "local-model" : modelIdUtf;
-    const std::string prompt_text = promptUtf == nullptr ? "" : promptUtf;
-
-    if (modelIdUtf != nullptr) {
-        env->ReleaseStringUTFChars(modelId, modelIdUtf);
-    }
-    if (promptUtf != nullptr) {
-        env->ReleaseStringUTFChars(prompt, promptUtf);
-    }
+    const std::string requested_model = modelId == nullptr
+        ? "local-model"
+        : jstring_to_utf8(env, modelId);
+    const std::string prompt_text = jstring_to_utf8(env, prompt);
 
 #ifdef MOBILECORE_USE_LLAMA_CPP
     if (g_model != nullptr && g_context != nullptr) {
@@ -700,7 +795,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         );
         if (n_prompt <= 0) {
             const std::string json = chat_json(false, requested_model, "llama.cpp error: failed to tokenize prompt", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb);
-            return env->NewStringUTF(json.c_str());
+            return utf8_to_jstring(env, json);
         }
 
         std::vector<llama_token> prompt_tokens(n_prompt);
@@ -715,7 +810,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         );
         if (tokenized < 0) {
             const std::string json = chat_json(false, requested_model, "llama.cpp error: prompt tokenization overflow", 0, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb);
-            return env->NewStringUTF(json.c_str());
+            return utf8_to_jstring(env, json);
         }
 
         llama_memory_clear(llama_get_memory(g_context), true);
@@ -729,7 +824,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
             if (llama_encode(g_context, batch) != 0) {
                 llama_sampler_free(sampler);
                 const std::string json = chat_json(false, requested_model, "llama.cpp error: encoder decode failed", n_prompt, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb);
-                return env->NewStringUTF(json.c_str());
+                return utf8_to_jstring(env, json);
             }
             llama_token decoder_start_token_id = llama_model_decoder_start_token(g_model);
             if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
@@ -739,12 +834,12 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
             if (llama_decode(g_context, batch) != 0) {
                 llama_sampler_free(sampler);
                 const std::string json = chat_json(false, requested_model, "llama.cpp error: decoder start failed", n_prompt, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb);
-                return env->NewStringUTF(json.c_str());
+                return utf8_to_jstring(env, json);
             }
         } else if (llama_decode(g_context, batch) != 0) {
             llama_sampler_free(sampler);
             const std::string json = chat_json(false, requested_model, "llama.cpp error: prompt eval failed", n_prompt, 0, 0, 0, 0, 0, 0.0, g_last_memory_mb);
-            return env->NewStringUTF(json.c_str());
+            return utf8_to_jstring(env, json);
         }
         const auto prompt_eval_end = std::chrono::steady_clock::now();
         const long long prompt_eval_ms = elapsed_ms(prompt_eval_start, prompt_eval_end);
@@ -790,7 +885,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
             if (llama_decode(g_context, batch) != 0) {
                 llama_sampler_free(sampler);
                 const std::string json = chat_json(false, requested_model, "llama.cpp error: token decode failed", n_prompt, n_decode, prompt_eval_ms, first_token_ms, 0, 0, 0.0, g_last_memory_mb);
-                return env->NewStringUTF(json.c_str());
+                return utf8_to_jstring(env, json);
             }
         }
 
@@ -835,7 +930,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
             memory_mb,
             cancelled ? "cancelled" : ""
         );
-        return env->NewStringUTF(json.c_str());
+        return utf8_to_jstring(env, json);
     }
 #endif
 
@@ -861,7 +956,7 @@ Java_ai_mobilecore_runtime_RuntimeBridge_nativeChat(
         0.0,
         g_last_memory_mb
     );
-    return env->NewStringUTF(json.c_str());
+    return utf8_to_jstring(env, json);
 }
 
 JNIEXPORT void JNICALL

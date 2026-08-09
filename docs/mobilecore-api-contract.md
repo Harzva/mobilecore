@@ -158,7 +158,7 @@ GET /health
 {
   "status": "ok",
   "service": "mobilecore",
-  "version": "0.1.4-rc8",
+  "version": "0.1.4-rc9",
   "background_restricted": false,
   "protocol": {
     "name": "mobilecore.local",

@@ -3,15 +3,18 @@ package ai.mobilecore.runtime
 import android.content.Context
 import java.io.File
 
-class ModelManager(
+class ModelManager internal constructor(
     private val backend: RuntimeBackend,
-    private val context: Context
+    private val internalModelDir: File,
+    private val externalModelDir: File?,
 ) {
-    private val internalModelDir: File = File(context.filesDir, "models").apply { mkdirs() }
-    private val externalModelDir: File? = context.getExternalFilesDir("models")?.apply { mkdirs() }
+    constructor(backend: RuntimeBackend, context: Context) : this(
+        backend = backend,
+        internalModelDir = File(context.filesDir, "models").apply { mkdirs() },
+        externalModelDir = context.getExternalFilesDir("models")?.apply { mkdirs() },
+    )
 
     fun scanModels(): List<RuntimeModel> {
-        val activeModel = backend.metrics().activeModel
         val discovered = modelDirectories()
             .flatMap { dir ->
                 dir.listFiles { file ->
@@ -33,7 +36,7 @@ class ModelManager(
                 quantization = metadata.quantization,
                 contextLength = metadata.contextLength,
                 sizeBytes = file.length(),
-                loaded = activeModel.equals(id, ignoreCase = true),
+                loaded = isExactPathLoaded(file.absolutePath),
                 architecture = metadata.architecture,
                 parameterCountB = metadata.parameterCountB,
                 parameterLabel = metadata.parameterLabel,
@@ -88,21 +91,83 @@ class ModelManager(
         return scanModels().firstOrNull { it.sizeBytes > 0 }
     }
 
+    /**
+     * Loads only a real GGUF contained by an app-owned model directory. The caller may pass a
+     * path discovered by the trusted installer, but path containment is still checked here at the
+     * runtime boundary.
+     */
+    fun loadModelFile(modelFile: File, options: LoadOptions = LoadOptions()): LoadResult {
+        val resolved = runCatching { modelFile.canonicalFile }.getOrNull()
+        val allowedRoots = modelDirectories().mapNotNull { runCatching { it.canonicalFile }.getOrNull() }
+        val allowed = resolved != null &&
+            resolved.isFile &&
+            resolved.extension.equals("gguf", ignoreCase = true) &&
+            !resolved.name.startsWith("mmproj-", ignoreCase = true) &&
+            allowedRoots.any { root ->
+                resolved.path.startsWith(root.path + File.separator)
+            }
+        return if (allowed) {
+            backend.loadModel(requireNotNull(resolved).absolutePath, options)
+        } else {
+            LoadResult(
+                ok = false,
+                modelId = "invalid-model",
+                loadTimeMs = 0L,
+                memoryUsedMb = 0L,
+            )
+        }
+    }
+
+    fun unloadModel(): Boolean = backend.unloadModel()
+
+    /** Process-local canonical identity. It must not be serialized by public API handlers. */
+    fun activeModelPath(): String? {
+        if (!backend.isModelLoaded()) return null
+        return canonicalPath(backend.activeModelPath())
+    }
+
+    fun isExactPathLoaded(modelPath: String): Boolean {
+        val activePath = activeModelPath() ?: return false
+        val candidatePath = canonicalPath(modelPath) ?: return false
+        return activePath == candidatePath
+    }
+
+    /** Resolves the loaded model only by its exact canonical artifact path. */
+    fun activeModel(): RuntimeModel? {
+        val path = activeModelPath() ?: return null
+        return modelByPath(path)
+    }
+
     /** Resolve a public model id without exposing or accepting a filesystem path. */
     fun modelById(modelId: String): RuntimeModel? {
         val normalized = modelId.trim()
         if (normalized.isEmpty()) return null
-        return scanModels().firstOrNull { model ->
+        return scanModels().filter { model ->
             model.sizeBytes > 0 && model.id.equals(normalized, ignoreCase = true)
-        }
+        }.singleOrNull()
+    }
+
+    /** Exact path lookup used only after canonical containment has already been established. */
+    fun modelByPath(modelPath: String?): RuntimeModel? {
+        val normalized = canonicalPath(modelPath) ?: return null
+        return scanModels().filter { model ->
+            model.sizeBytes > 0 && canonicalPath(model.path) == normalized
+        }.singleOrNull()
     }
 
     fun projectorById(projectorId: String): RuntimeProjector? {
         val normalized = projectorId.trim()
         if (normalized.isEmpty()) return null
-        return scanProjectors().firstOrNull { projector ->
+        return scanProjectors().filter { projector ->
             projector.sizeBytes > 0 && projector.id.equals(normalized, ignoreCase = true)
-        }
+        }.singleOrNull()
+    }
+
+    fun projectorByPath(projectorPath: String?): RuntimeProjector? {
+        val normalized = canonicalPath(projectorPath) ?: return null
+        return scanProjectors().filter { projector ->
+            projector.sizeBytes > 0 && canonicalPath(projector.path) == normalized
+        }.singleOrNull()
     }
 
     /**
@@ -129,7 +194,12 @@ class ModelManager(
     }
 
     fun modelDirectories(): List<File> {
-        return listOfNotNull(internalModelDir, externalModelDir)
+        return listOfNotNull(internalModelDir, externalModelDir).distinctBy { canonicalPath(it.path) }
+    }
+
+    private fun canonicalPath(path: String?): String? {
+        if (path.isNullOrBlank()) return null
+        return runCatching { File(path).canonicalPath }.getOrNull()
     }
 
     private fun pairingKey(value: String, projector: Boolean): String {

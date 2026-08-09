@@ -1,4 +1,4 @@
-# TuiMa / MobileCore Android (0.1.3-rc2)
+# TuiMa / MobileCore Android (0.1.4-rc9)
 
 本文件记录 Android 原生 MVP 骨架的本地启动方式。当前 APK 会编译并加载 `mobilecore_llama` JNI library，已链接 llama.cpp，并提供 OpenAI-compatible mock/fallback 路由、模型目录发现和最小 GGUF 加载入口。
 
@@ -40,7 +40,7 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -d '{"model":"local-model","messages":[{"role":"user","content":"Hello"}],"max_tokens":32}'
 ```
 
-### 0.1.3-rc2 release APK
+### Release APK
 
 常规 release 构建默认不签名，产物用于 CI 或后续正式签名：
 
@@ -66,7 +66,11 @@ adb shell am start -n com.mobilecore.app/ai.mobilecore.MainActivity
 
 Models tab 也内置了 ModelScope 模型站入口：应用会通过 ModelScope `suggestv2` 搜索 GGUF 仓库，再读取仓库详情和 `repo/files` 文件列表，展示 GGUF 文件、参数量、量化等级、架构、大小和下载量。搜索框支持 `qwen3`、`q4`、`0.6B`、`Q4_K_M` 等关键词；空搜索会保留默认小模型推荐。点击 `Download` 会走应用内下载器并在完成后触发加载。
 
-模型页顶部还提供 **Mobile Model Playground** 入口。内置快照来自独立注册表，分开展示上游发布者与转换者、`Harzva 转换 / 上游官方 / 第三方转换`、固定 revision、许可证、声明能力、实测能力、模拟器/真机/质量门禁和本机状态。第三方 GGUF 即使未来镜像到 GitCode，也继续保留原转换者；同名文件即使正在运行，也只显示“来源待校验”，不会绕过 SHA-256 归因门禁。ModelScope 在线结果属于“社区搜索 · 未验证”，与 Playground 条目分区显示。
+模型页顶部还提供 [**Mobile Model Playground**](https://github.com/Harzva/mobile-model-playground) 入口。内置快照来自独立注册表，分开展示上游发布者与转换者、`Harzva 转换 / 上游官方 / 第三方转换`、固定 revision、许可证、声明能力、实测能力、模拟器/真机/质量门禁和本机状态。第三方 GGUF 即使未来镜像到 GitCode，也继续保留原转换者；同名文件即使正在运行，也只显示“来源待校验”，不会绕过 SHA-256 归因门禁。ModelScope 在线结果属于“社区搜索 · 未验证”，与 Playground 条目分区显示。
+
+许可、固定 revision、大小和 SHA-256 都通过门禁的 `https_direct` 条目可在 App 内安装。生命周期为：空间预检 → `.part` 断点续传 → 精确字节数 → SHA-256 → 同目录原子安装 → 加载 → 先卸载运行时再删除文件。文件名相同但没有清单校验证明时只显示“来源不匹配”，不会覆盖或加载。当前 Qwen3 0.6B Harzva conversion 使用固定 Hugging Face revision；GitCode LFS 是可追溯分发端点，但不是 App 直装来源。
+
+“我的 → 实验室 → 本地相册搜索”提供真实 CLIP 图文检索。运行时要求同一受信目录中的 image encoder、text encoder、`vocab.json`、`merges.txt` 和 `tokenizer_config.json`，索引与查询由 MobileCore 本机处理。当前 UI 只展示 CLIP 余弦排序；G2D/VLM candidate verifier 尚未接入产品结果，不能把 CLIP 结果称为 G2D 已验证。Oxford-Pets 37/370 ARM64 模拟器证据和复现命令见 [`../docs/local-gallery-search.md`](../docs/local-gallery-search.md)。
 
 ```bash
 # 可选：安装 Hugging Face / ModelScope 下载工具到本地 .tools/

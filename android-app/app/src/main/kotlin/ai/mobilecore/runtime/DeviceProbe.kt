@@ -96,7 +96,7 @@ class DeviceProbe(private val context: Context) {
             if (model.sizeBytes == 0L) {
                 reasons.add("当前文件占用未知：建议先实际下载 GGUF")
             }
-            if (model.loaded || metrics.activeModel.equals(model.id, ignoreCase = true)) {
+            if (model.loaded) {
                 reasons.add("已加载模型：无需切换")
             }
 
@@ -110,7 +110,7 @@ class DeviceProbe(private val context: Context) {
                     score = score,
                     expectedTokensPerSecond = expectedTps,
                     reasons = reasons,
-                    loaded = model.loaded || metrics.activeModel.equals(model.id, ignoreCase = true),
+                    loaded = model.loaded,
                     benchmark = benchmark
                 )
             )
