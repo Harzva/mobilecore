@@ -1402,7 +1402,14 @@ class MainActivity : Activity() {
             })
             addView(space(10))
             addView(
-                chipButton(if (entry.distribution.repositoryUrl == null) "查看固定来源" else "查看发布仓库", false) {
+                chipButton(
+                    when {
+                        entry.distribution.mode == "huggingface_model_repo" -> "打开 Hugging Face"
+                        entry.distribution.repositoryUrl == null -> "查看固定来源"
+                        else -> "查看发布仓库"
+                    },
+                    false,
+                ) {
                     openPlaygroundSource(entry)
                 },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),

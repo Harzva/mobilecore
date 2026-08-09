@@ -135,6 +135,7 @@ object PlaygroundCatalogParser {
         "upstream_link",
         "planned_gitcode_model_repo",
         "gitcode_model_repo",
+        "huggingface_model_repo",
         "byte_mirror",
         "recipe_only",
     )
@@ -259,6 +260,27 @@ object PlaygroundCatalogParser {
                 "published GitCode model requires a published publication state"
             }
         }
+        if (distributionMode == "huggingface_model_repo") {
+            require(published) { "Hugging Face model repository must be published" }
+            require(repositoryUrl != null && URI(repositoryUrl).host == "huggingface.co") {
+                "Hugging Face model repository URL is required"
+            }
+            require(publishedRevision != null) { "Hugging Face model repository revision is required" }
+            require(installTransport == "https_direct") { "Hugging Face model requires direct HTTPS transport" }
+            require(publicationState == "POST_PUBLISH_VERIFIED") {
+                "Hugging Face direct download requires post-publication verification"
+            }
+            val repositoryPath = URI(repositoryUrl).path.trimEnd('/')
+            artifacts.forEach { artifact ->
+                val artifactUrl = URI(requireNotNull(artifact.sourceUrl))
+                require(
+                    artifactUrl.host == "huggingface.co" &&
+                        artifactUrl.path == "$repositoryPath/resolve/$publishedRevision/${artifact.name}"
+                ) {
+                    "Hugging Face artifact URL must pin repository, revision, and filename"
+                }
+            }
+        }
         return PlaygroundCatalogEntry(
             id = id,
             displayName = value.getString("display_name").also { require(it.isNotBlank()) },
@@ -306,8 +328,13 @@ object PlaygroundCatalogParser {
 
     private fun requireHttps(value: String, field: String): String {
         val uri = URI(value)
-        require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null) {
-            "$field must be an HTTPS URL without credentials"
+        require(
+            uri.scheme == "https" &&
+                !uri.host.isNullOrBlank() &&
+                uri.userInfo == null &&
+                (uri.port == -1 || uri.port == 443),
+        ) {
+            "$field must be an HTTPS URL on the default port without credentials"
         }
         return value
     }

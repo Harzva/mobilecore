@@ -36,15 +36,16 @@ class PlaygroundCatalogTest {
         assertEquals("Qwen", harzva.source.upstreamPublisher)
         assertEquals("Harzva", harzva.source.conversionPublisher)
         assertTrue(harzva.distribution.published)
-        assertFalse(harzva.distribution.downloadable)
-        assertEquals("gitcode_model_repo", harzva.distribution.mode)
-        assertEquals("git_lfs_batch", harzva.distribution.installTransport)
+        assertTrue(harzva.distribution.downloadable)
+        assertEquals("huggingface_model_repo", harzva.distribution.mode)
+        assertEquals("https_direct", harzva.distribution.installTransport)
         assertEquals("POST_PUBLISH_VERIFIED", harzva.distribution.publicationState)
-        assertEquals("f985baad4b0637d500d38d755a92dc95dfa9c1ab", harzva.distribution.revision)
+        assertEquals("00b8b574c0cba5df1aa04971f179a7d29d828910", harzva.distribution.revision)
         assertEquals(
-            "https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf",
+            "https://huggingface.co/harzva/mobilecore-qwen3-0.6b-gguf",
             harzva.distribution.repositoryUrl,
         )
+        assertTrue(harzva.artifacts.single().sourceUrl!!.contains(harzva.distribution.revision!!))
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -61,6 +62,15 @@ class PlaygroundCatalogTest {
         val tampered = assetText().replaceFirst(
             "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF",
             "file:///data/local/tmp/model.gguf",
+        )
+        PlaygroundCatalogParser.parse(tampered)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `Hugging Face URL must reject non default HTTPS port`() {
+        val tampered = assetText().replace(
+            "https://huggingface.co/harzva/mobilecore-qwen3-0.6b-gguf",
+            "https://huggingface.co:444/harzva/mobilecore-qwen3-0.6b-gguf",
         )
         PlaygroundCatalogParser.parse(tampered)
     }
@@ -95,7 +105,7 @@ class PlaygroundCatalogTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun `published GitCode model requires pinned repository metadata`() {
+    fun `published Hugging Face model requires pinned repository metadata`() {
         val root = JSONObject(assetText())
         val entries = root.getJSONArray("entries")
         for (index in 0 until entries.length()) {
@@ -114,7 +124,9 @@ class PlaygroundCatalogTest {
         for (index in 0 until entries.length()) {
             val entry = entries.getJSONObject(index)
             if (entry.getString("id") == "qwen3-0.6b-q4-k-m") {
-                entry.getJSONObject("distribution").put("downloadable", true)
+                entry.getJSONObject("distribution")
+                    .put("mode", "gitcode_model_repo")
+                    .put("install_transport", "git_lfs_batch")
                 entry.getJSONArray("artifacts").getJSONObject(0).put(
                     "source_url",
                     "https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf/raw/model.gguf",
