@@ -21,6 +21,7 @@ data class PlaygroundEntryUiModel(
     val localStatusLabel: String,
     val localStatusDetail: String,
     val localPhase: PlaygroundLocalPhase,
+    val distributionLabel: String,
     val recommended: Boolean,
 )
 
@@ -30,9 +31,6 @@ object PlaygroundPresenter {
         "DEVICE_VALIDATED",
         "QUALITY_VALIDATED",
         "PERFORMANCE_VALIDATED",
-        "PUBLISH_READY",
-        "PUBLISHED",
-        "POST_PUBLISH_VERIFIED",
     )
 
     fun present(
@@ -77,6 +75,16 @@ object PlaygroundPresenter {
             PlaygroundArtifactOrigin.RECIPE ->
                 "上游 ${entry.source.upstreamPublisher} · 转换者 ${entry.source.conversionPublisher}"
         }
+        val distributionLabel = when {
+            entry.distribution.downloadable -> "已发布 · 可直接下载"
+            entry.distribution.mode == "gitcode_model_repo" &&
+                entry.distribution.publicationState == "POST_PUBLISH_VERIFIED" &&
+                entry.distribution.installTransport == "git_lfs_batch" ->
+                "GitCode 已校验 · 直装待 LFS"
+            entry.distribution.published -> "来源仓已发布 · 暂未开放直装"
+            entry.distribution.publishable -> "已通过发布门禁 · 尚未发布"
+            else -> "已收录 · 暂不可发布"
+        }
         return PlaygroundEntryUiModel(
             id = entry.id,
             title = entry.displayName,
@@ -88,6 +96,7 @@ object PlaygroundPresenter {
             localStatusLabel = status.first,
             localStatusDetail = status.second,
             localPhase = phase,
+            distributionLabel = distributionLabel,
             recommended = recommended,
         )
     }

@@ -35,8 +35,16 @@ class PlaygroundCatalogTest {
         val harzva = catalog.entries.first { it.id == "qwen3-0.6b-q4-k-m" }
         assertEquals("Qwen", harzva.source.upstreamPublisher)
         assertEquals("Harzva", harzva.source.conversionPublisher)
-        assertFalse(harzva.distribution.published)
+        assertTrue(harzva.distribution.published)
         assertFalse(harzva.distribution.downloadable)
+        assertEquals("gitcode_model_repo", harzva.distribution.mode)
+        assertEquals("git_lfs_batch", harzva.distribution.installTransport)
+        assertEquals("POST_PUBLISH_VERIFIED", harzva.distribution.publicationState)
+        assertEquals("f985baad4b0637d500d38d755a92dc95dfa9c1ab", harzva.distribution.revision)
+        assertEquals(
+            "https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf",
+            harzva.distribution.repositoryUrl,
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -81,6 +89,36 @@ class PlaygroundCatalogTest {
             val entry = entries.getJSONObject(index)
             if (entry.getString("id") == "gemma3-1b-it-q4-k-m-unsloth") {
                 entry.getJSONObject("distribution").put("downloadable", true)
+            }
+        }
+        PlaygroundCatalogParser.parse(root.toString())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `published GitCode model requires pinned repository metadata`() {
+        val root = JSONObject(assetText())
+        val entries = root.getJSONArray("entries")
+        for (index in 0 until entries.length()) {
+            val entry = entries.getJSONObject(index)
+            if (entry.getString("id") == "qwen3-0.6b-q4-k-m") {
+                entry.getJSONObject("distribution").remove("revision")
+            }
+        }
+        PlaygroundCatalogParser.parse(root.toString())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `Git LFS entry cannot claim direct download support`() {
+        val root = JSONObject(assetText())
+        val entries = root.getJSONArray("entries")
+        for (index in 0 until entries.length()) {
+            val entry = entries.getJSONObject(index)
+            if (entry.getString("id") == "qwen3-0.6b-q4-k-m") {
+                entry.getJSONObject("distribution").put("downloadable", true)
+                entry.getJSONArray("artifacts").getJSONObject(0).put(
+                    "source_url",
+                    "https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf/raw/model.gguf",
+                )
             }
         }
         PlaygroundCatalogParser.parse(root.toString())

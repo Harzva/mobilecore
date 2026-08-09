@@ -61,6 +61,10 @@ data class PlaygroundDistribution(
     val publishable: Boolean,
     val published: Boolean,
     val downloadable: Boolean,
+    val repositoryUrl: String?,
+    val revision: String?,
+    val installTransport: String?,
+    val publicationState: String?,
 )
 
 data class PlaygroundCatalogEntry(
@@ -117,9 +121,6 @@ object PlaygroundCatalogParser {
         "DEVICE_VALIDATED",
         "QUALITY_VALIDATED",
         "PERFORMANCE_VALIDATED",
-        "PUBLISH_READY",
-        "PUBLISHED",
-        "POST_PUBLISH_VERIFIED",
         "RECIPE_ONLY",
         "BLOCKED_LICENSE",
         "BLOCKED_DEVICE",
@@ -137,14 +138,13 @@ object PlaygroundCatalogParser {
         "byte_mirror",
         "recipe_only",
     )
+    private val allowedInstallTransports = setOf("https_direct", "git_lfs_batch")
+    private val allowedPublicationStates = setOf("PUBLISHED", "POST_PUBLISH_VERIFIED")
     private val downloadableStates = setOf(
         "EMULATOR_CONTRACT_CHECKED",
         "DEVICE_VALIDATED",
         "QUALITY_VALIDATED",
         "PERFORMANCE_VALIDATED",
-        "PUBLISH_READY",
-        "PUBLISHED",
-        "POST_PUBLISH_VERIFIED",
     )
 
     fun parse(text: String): PlaygroundCatalog {
@@ -232,12 +232,32 @@ object PlaygroundCatalogParser {
         require(distributionMode in allowedDistributionModes) { "unsupported catalog distribution mode" }
         val published = distributionJson.getBoolean("published")
         val downloadable = distributionJson.getBoolean("downloadable")
+        val repositoryUrl = distributionJson.optString("repository_url").takeIf { it.isNotBlank() }
+            ?.let { requireHttps(it, "distribution.repository_url") }
+        val publishedRevision = distributionJson.optString("revision").takeIf { it.isNotBlank() }
+            ?.also { require(revisionPattern.matches(it)) { "distribution revision must be an immutable commit" } }
+        val installTransport = distributionJson.optString("install_transport").takeIf { it.isNotBlank() }
+            ?.also { require(it in allowedInstallTransports) { "unsupported install transport" } }
+        val publicationState = distributionJson.optString("publication_state").takeIf { it.isNotBlank() }
+            ?.also { require(it in allowedPublicationStates) { "unsupported publication state" } }
         require(!downloadable || published) { "downloadable artifact must be published" }
         require(!downloadable || licenseReview == "cleared") { "downloadable artifact requires cleared license" }
         require(!downloadable || verifiedStatus == "pass") { "downloadable artifact requires verified capability" }
         require(!downloadable || state in downloadableStates) { "downloadable artifact requires a positive validation state" }
+        require(!downloadable || installTransport == "https_direct") {
+            "downloadable artifact requires a supported direct install transport"
+        }
         require(!downloadable || artifacts.all { it.sourceUrl != null }) {
             "downloadable entry must pin every artifact source URL"
+        }
+        if (distributionMode == "gitcode_model_repo") {
+            require(published) { "GitCode model repository must be published" }
+            require(repositoryUrl != null) { "GitCode model repository URL is required" }
+            require(publishedRevision != null) { "GitCode model repository revision is required" }
+            require(installTransport != null) { "GitCode model install transport is required" }
+            require(publicationState == "PUBLISHED" || publicationState == "POST_PUBLISH_VERIFIED") {
+                "published GitCode model requires a published publication state"
+            }
         }
         return PlaygroundCatalogEntry(
             id = id,
@@ -270,6 +290,10 @@ object PlaygroundCatalogParser {
                 publishable = distributionJson.getBoolean("publishable"),
                 published = published,
                 downloadable = downloadable,
+                repositoryUrl = repositoryUrl,
+                revision = publishedRevision,
+                installTransport = installTransport,
+                publicationState = publicationState,
             ),
         )
     }

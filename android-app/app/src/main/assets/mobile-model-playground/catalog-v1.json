@@ -2,7 +2,7 @@
   "schema_version": 1,
   "catalog_id": "mobile-model-playground-v1",
   "source_repository": "https://github.com/Harzva/mobile-model-playground",
-  "registry_digest_sha256": "b58146be17be3248d4cf9139fc53d1f8b302d253d801c2dbf0a1358c9f5ad3eb",
+  "registry_digest_sha256": "bfe53863351b246e57ea316f0c0a2ff893b15587ed68466cf95f5a1293fbf6ac",
   "entries": [
     {
       "id": "qwen2.5-0.5b-instruct-q4-k-m-official",
@@ -72,7 +72,8 @@
         "mirror_eligible": true,
         "publishable": false,
         "published": true,
-        "downloadable": true
+        "downloadable": true,
+        "install_transport": "https_direct"
       }
     },
     {
@@ -82,7 +83,7 @@
       "origin_label": "Harzva 转换",
       "state": "EMULATOR_CONTRACT_CHECKED",
       "validation_label": "模拟器实测",
-      "summary": "Harzva 从固定上游 revision 转换的首个 MobileCore GGUF 候选。",
+      "summary": "Harzva 从固定上游 revision 转换并发布到 GitCode 的首个 MobileCore GGUF；App 直装仍待 Git LFS 协议接入。",
       "parameter_label": "0.6B",
       "quantization_label": "Q4_K_M",
       "featured": true,
@@ -138,11 +139,15 @@
         ]
       },
       "distribution": {
-        "mode": "planned_gitcode_model_repo",
+        "mode": "gitcode_model_repo",
         "mirror_eligible": false,
         "publishable": true,
-        "published": false,
-        "downloadable": false
+        "published": true,
+        "downloadable": false,
+        "repository_url": "https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf",
+        "revision": "f985baad4b0637d500d38d755a92dc95dfa9c1ab",
+        "install_transport": "git_lfs_batch",
+        "publication_state": "POST_PUBLISH_VERIFIED"
       }
     },
     {
@@ -204,7 +209,8 @@
         "mirror_eligible": false,
         "publishable": false,
         "published": true,
-        "downloadable": false
+        "downloadable": false,
+        "install_transport": "https_direct"
       }
     },
     {
@@ -266,7 +272,8 @@
         "mirror_eligible": false,
         "publishable": false,
         "published": true,
-        "downloadable": false
+        "downloadable": false,
+        "install_transport": "https_direct"
       }
     },
     {
@@ -338,7 +345,8 @@
         "mirror_eligible": false,
         "publishable": false,
         "published": true,
-        "downloadable": false
+        "downloadable": false,
+        "install_transport": "https_direct"
       }
     },
     {
@@ -420,7 +428,8 @@
         "mirror_eligible": false,
         "publishable": false,
         "published": true,
-        "downloadable": false
+        "downloadable": false,
+        "install_transport": "https_direct"
       }
     }
   ]

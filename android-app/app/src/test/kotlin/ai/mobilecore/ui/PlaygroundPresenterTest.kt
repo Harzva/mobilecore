@@ -66,6 +66,7 @@ class PlaygroundPresenterTest {
         assertTrue(model.recommended)
         assertTrue(model.attributionLabel.contains("上游 Qwen"))
         assertTrue(model.attributionLabel.contains("转换者 Harzva"))
+        assertEquals("GitCode 已校验 · 直装待 LFS", model.distributionLabel)
     }
 
     @Test

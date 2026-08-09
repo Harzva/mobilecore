@@ -1393,6 +1393,8 @@ class MainActivity : Activity() {
             addView(thinDivider())
             addView(readinessRow("证据门禁", model.validationLabel, model.validationPassed, if (model.validationPassed) Palette.mintDark else Palette.amber))
             addView(thinDivider())
+            addView(readinessRow("分发状态", model.distributionLabel, entry.distribution.published, Palette.blue))
+            addView(thinDivider())
             addView(readinessRow("本机状态", model.localStatusLabel, false, Palette.blue))
             addView(label(model.localStatusDetail, 10.8f, Palette.muted, Typeface.NORMAL).apply {
                 setPadding(dp(2), dp(5), dp(2), 0)
@@ -1400,13 +1402,16 @@ class MainActivity : Activity() {
             })
             addView(space(10))
             addView(
-                chipButton("查看固定来源", false) { openPlaygroundSource(entry) },
+                chipButton(if (entry.distribution.repositoryUrl == null) "查看固定来源" else "查看发布仓库", false) {
+                    openPlaygroundSource(entry)
+                },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),
             )
             contentDescription = listOf(
                 model.title,
                 PlaygroundPresenter.originAccessibilityLabel(entry.origin),
                 model.validationLabel,
+                model.distributionLabel,
                 model.localStatusLabel,
             ).joinToString("，")
         }
@@ -1420,7 +1425,7 @@ class MainActivity : Activity() {
     }
 
     private fun openPlaygroundSource(entry: PlaygroundCatalogEntry) {
-        openPlaygroundUrl(entry.source.repository, "无法打开模型来源")
+        openPlaygroundUrl(entry.distribution.repositoryUrl ?: entry.source.repository, "无法打开模型来源")
     }
 
     private fun openPlaygroundUrl(url: String, failureMessage: String) {
