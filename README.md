@@ -15,10 +15,10 @@
   <img alt="llama.cpp" src="https://img.shields.io/badge/llama.cpp-JNI%20backend-43D1E8?style=flat-square" />
   <img alt="GGUF" src="https://img.shields.io/badge/GGUF-models-6B8CFF?style=flat-square" />
   <img alt="OpenAI compatible" src="https://img.shields.io/badge/API-OpenAI%20compatible-111827?style=flat-square" />
-  <img alt="Release" src="https://img.shields.io/badge/release-v0.1.4--rc8-2555FF?style=flat-square" />
+  <img alt="Release" src="https://img.shields.io/badge/release-v0.1.4--rc9-2555FF?style=flat-square" />
 </p>
 
-Latest Android prerelease: [TuiMa 0.1.4 RC8](https://github.com/Harzva/mobilecore/releases/tag/v0.1.4-rc8), with a directly downloadable [upload-signed APK](https://github.com/Harzva/mobilecore/releases/download/v0.1.4-rc8/tuima-release.apk). It was built by [GitHub Actions run 31140544846](https://github.com/Harzva/mobilecore/actions/runs/31140544846) from tag commit `3ef9b274` and has SHA-256 `e82a5f784cb3730f321126c059c40e43ac4489a756bb185d3d71c89d8d36535f`.
+Latest Android prerelease: [TuiMa 0.1.4 RC9](https://github.com/Harzva/mobilecore/releases/tag/v0.1.4-rc9), with a directly downloadable [upload-signed APK](https://github.com/Harzva/mobilecore/releases/download/v0.1.4-rc9/tuima-release.apk). It was built by [GitHub Actions run 31322358946](https://github.com/Harzva/mobilecore/actions/runs/31322358946) from tag commit `1680cfc` and has SHA-256 `c883eaf359ce3f3e4eb11d33f9a2c6b80a411d9f3878e7f9bd33b759495e39fe`.
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
@@ -175,7 +175,7 @@ The Android local API allows the GitHub Pages origin `https://harzva.github.io` 
 
 MobileCore reports the active model, runtime, revision, backend, quantization, capability snapshot, active-model resource preflight, artifact state, recommendations, and decode metrics. MobileCode uses this snapshot for routing and presents load/unload/switch controls without learning local file paths.
 
-MobileCore `0.1.4-rc8` publishes the strict `mobilecore.local` v2 compatibility range and Android `background_restricted` state in `/health`, allowing clients to fail closed before local routing when the handshake is incompatible or Android will not allow MobileCore to remain active. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
+MobileCore `0.1.4-rc9` continues to publish the strict `mobilecore.local` v2 compatibility range and Android `background_restricted` state in `/health`, allowing clients to fail closed before local routing when the handshake is incompatible or Android will not allow MobileCore to remain active. Timeout and user-pause paths call the authenticated local cancellation endpoint so native decoding does not continue after MobileCode stops waiting.
 
 The boundary is deliberate: MobileCore performs local inference only. MobileCode owns cloud consent, Phone Use, transaction approvals, clicks, credentials, and ActionEvidence. MobileCore has no device-action API.
 
@@ -184,6 +184,8 @@ On 2026-08-06, a same-emulator dual-app lane passed 30 real offline requests fro
 On 2026-08-07, the exact final-tag upload-signed `0.1.4-rc6` APK was update-installed without deleting the real Qwen2.5 0.5B model. The Android 16 dual-app background lane kept MobileCode resumed for 40 polls (about two minutes); all 40 authenticated health checks passed, MobileCore stayed a typed `dataSync` foreground service, and neither process freezing nor FGS/ANR/OOM safety failures were observed. One controlled local inference also completed with zero request failures. See the [rc6 release evidence](docs/release/tuima-0.1.4-rc6.md). A deliberately background-restricted emulator state was rejected during preflight and is not counted as a runtime pass.
 
 The `0.1.4-rc8` prerelease adds a MobileCore-owned Qwen2.5-Omni lifecycle screen: live pre-consent resource projection, publisher/license disclosure, one-use explicit consent, and install/cancel/verify/load/uninstall controls. An isolated Android 16 ARM64 AVD with insufficient memory correctly omitted the install action and downloaded no artifact. The final upload-signed APK then update-installed over rc7, cold-launched in 575 ms, reported `0.1.4-rc8` from both Android and `/health`, preserved all three existing local model entries, and produced no fatal marker in the verification log window. A post-release MobileCode `0.1.78` cross-app check completed 30/30 airplane-mode requests against that same official rc8 install (15 buffered and 15 SSE), with 30 requests and zero failures in MobileCore metrics. These are release-integrity, compatibility, and fail-closed UI results, not evidence that the 3.64 GB pair runs on a phone; verified physical-device image/audio, memory, thermal, and sustained-runtime gates remain open. See the [rc8 release evidence](docs/release/tuima-0.1.4-rc8.md).
+
+The `0.1.4-rc9` prerelease adds the trusted Mobile Model Playground installation loop and a real local gallery-search product path. Eligible pinned Hugging Face artifacts now go through storage preflight, resumable transfer, exact byte/SHA-256 verification, same-directory atomic placement, exact runtime identity, loading, and ownership-gated uninstall. Paired CLIP ONNX encoders build an app-private MediaStore index for text-to-photo retrieval; Oxford-Pets 37/370 ARM64 emulator runs passed the published quality gates. JSON/JNI Unicode handling now preserves Chinese, emoji, and supplementary-plane characters. The upload-signed tag APK was freshly installed and cold-launched on an isolated Android 16 ARM64 AVD, returned `version=0.1.4-rc9` from `/health`, and produced no fatal or ANR marker. The model and retrieval performance numbers remain emulator evidence; the emulator did not complete the Hugging Face network transfer, physical-device gates remain open, and G2D/VLM Agentic reranking is not enabled in the product UI. See the [rc9 release evidence](docs/release/tuima-0.1.4-rc9.md).
 
 ## Benchmarks
 
