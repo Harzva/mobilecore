@@ -31,6 +31,8 @@ Latest Android prerelease: [TuiMa 0.1.4 RC8](https://github.com/Harzva/mobilecor
 
 MobileCore is the local model runtime layer of the Mobile AI Stack. It runs small and mid-size LLMs on Android phones, manages GGUF model files, exposes a localhost OpenAI-compatible API, records real runtime metrics, and recommends models based on the current device. The iOS app now has a buildable SwiftUI skeleton with Files import, an Objective-C++ llama.cpp bridge, and foreground localhost routes.
 
+The Android Models tab now includes an offline **Mobile Model Playground** catalog snapshot. Playground owns model provenance, conversion attribution, immutable revisions, licenses, SHA-256 digests, capabilities, and evidence; MobileCore owns local-file discovery, loading, inference, and benchmarks. Community ModelScope search remains available but is explicitly separated from Playground-curated entries and their declared validation state.
+
 It is designed to sit below MobileCode or any other mobile app that wants to call a local LLM through `http://127.0.0.1:8080/v1`.
 
 ## What Works Now
@@ -42,6 +44,7 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Local API | NanoHTTPD server on `127.0.0.1:8080` with `/v1/models`, `/v1/chat/completions`, `/metrics`, `/health`, recommendations, and model-ID load/unload routes |
 | Native runtime | JNI bridge loads `mobilecore_llama`, builds llama.cpp through CMake, and falls back to mock mode when native loading fails |
 | Model flow | Import GGUF from Android file picker or push model files with `adb`; load/unload text models and compatible main-GGUF/mmproj vision pairs through app buttons or local API |
+| Model Playground | Bundled source-transparent catalog with separate upstream/converter attribution, declared versus measured capabilities, license and quality gates, pinned sources, and honest absent/local-unverified/active-unverified states |
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
 | TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, MobileCore localhost speed calls, signed result checks, Supabase-ready shared leaderboard, local fallback entries, and custom board JSON flow |

@@ -66,6 +66,8 @@ adb shell am start -n com.mobilecore.app/ai.mobilecore.MainActivity
 
 Models tab 也内置了 ModelScope 模型站入口：应用会通过 ModelScope `suggestv2` 搜索 GGUF 仓库，再读取仓库详情和 `repo/files` 文件列表，展示 GGUF 文件、参数量、量化等级、架构、大小和下载量。搜索框支持 `qwen3`、`q4`、`0.6B`、`Q4_K_M` 等关键词；空搜索会保留默认小模型推荐。点击 `Download` 会走应用内下载器并在完成后触发加载。
 
+模型页顶部还提供 **Mobile Model Playground** 入口。内置快照来自独立注册表，分开展示上游发布者与转换者、`Harzva 转换 / 上游官方 / 第三方转换`、固定 revision、许可证、声明能力、实测能力、模拟器/真机/质量门禁和本机状态。第三方 GGUF 即使未来镜像到 GitCode，也继续保留原转换者；同名文件即使正在运行，也只显示“来源待校验”，不会绕过 SHA-256 归因门禁。ModelScope 在线结果属于“社区搜索 · 未验证”，与 Playground 条目分区显示。
+
 ```bash
 # 可选：安装 Hugging Face / ModelScope 下载工具到本地 .tools/
 ./scripts/download-gguf.sh --install-tools

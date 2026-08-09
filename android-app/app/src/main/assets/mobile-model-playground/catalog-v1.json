@@ -1,0 +1,427 @@
+{
+  "schema_version": 1,
+  "catalog_id": "mobile-model-playground-v1",
+  "source_repository": "https://github.com/Harzva/mobile-model-playground",
+  "registry_digest_sha256": "b58146be17be3248d4cf9139fc53d1f8b302d253d801c2dbf0a1358c9f5ad3eb",
+  "entries": [
+    {
+      "id": "qwen2.5-0.5b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 0.5B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Qwen 官方 GGUF，MobileCore 标准文本跑分基线。",
+      "parameter_label": "0.5B",
+      "quantization_label": "Q4_K_M",
+      "featured": true,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+        "revision": "9217f5db79a29953eb74d5343926648285ec7e67",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "Apache-2.0",
+        "license_review": "cleared"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 491400032,
+          "sha256": "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "android_avd",
+          "ios_simulator"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": true,
+        "publishable": false,
+        "published": true,
+        "downloadable": true
+      }
+    },
+    {
+      "id": "qwen3-0.6b-q4-k-m",
+      "display_name": "Qwen3 0.6B GGUF Q4_K_M for MobileCore",
+      "artifact_origin": "converted_by_harzva",
+      "origin_label": "Harzva 转换",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Harzva 从固定上游 revision 转换的首个 MobileCore GGUF 候选。",
+      "parameter_label": "0.6B",
+      "quantization_label": "Q4_K_M",
+      "featured": true,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen3-0.6B",
+        "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Harzva",
+        "license": "Apache-2.0",
+        "license_review": "cleared"
+      },
+      "artifacts": [
+        {
+          "name": "qwen3-0.6b-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 484220160,
+          "sha256": "18ea1f301079bba6391ab6d455c0c8565fd5a3214075eb2cd9daf351dedc719b",
+          "distribution": "gitcode_lfs"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "planned_gitcode_model_repo",
+        "mirror_eligible": false,
+        "publishable": true,
+        "published": false,
+        "downloadable": false
+      }
+    },
+    {
+      "id": "gemma3-1b-it-q4-k-m-unsloth",
+      "display_name": "Gemma 3 1B IT GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "Unsloth 转换的 Gemma 文本基线；可索引，权重镜像暂被许可门禁阻止。",
+      "parameter_label": "1B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF",
+        "revision": "f0b45be0aac41bd6a100a4b5734cad5f67255bfb",
+        "upstream_publisher": "Google",
+        "conversion_publisher": "unsloth",
+        "license": "Gemma Terms of Use",
+        "license_review": "blocked"
+      },
+      "artifacts": [
+        {
+          "name": "gemma-3-1b-it-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 806058272,
+          "sha256": "8270790f3ab69fdfe860b7b64008d9a19986d8df7e407bb018184caa08798ebd",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/f0b45be0aac41bd6a100a4b5734cad5f67255bfb/gemma-3-1b-it-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false
+      }
+    },
+    {
+      "id": "gemma3-270m-it-q4-k-m-unsloth",
+      "display_name": "Gemma 3 270M IT GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "Unsloth 超轻 Gemma 转换；本地文件可解析，但尚无真实加载和生成证据。",
+      "parameter_label": "270M",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF",
+        "revision": "d6aa4b1b8c7cafdef939f4490694b0a241da593b",
+        "upstream_publisher": "Google",
+        "conversion_publisher": "unsloth",
+        "license": "Gemma Terms of Use",
+        "license_review": "blocked"
+      },
+      "artifacts": [
+        {
+          "name": "gemma-3-270m-it-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 253115424,
+          "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/unsloth/gemma-3-270m-it-GGUF/resolve/d6aa4b1b8c7cafdef939f4490694b0a241da593b/gemma-3-270m-it-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false
+      }
+    },
+    {
+      "id": "qwen2.5-omni-3b-q4-k-m-ggml-org",
+      "display_name": "Qwen2.5-Omni 3B GGUF Q4_K_M + Q8 mmproj",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "DISCOVERED",
+      "validation_label": "已收录 · 未实测",
+      "summary": "ggml-org 第三方 Omni 转换；当前只有清单，尚未下载、校验或加载。",
+      "parameter_label": "3B",
+      "quantization_label": "Q4_K_M + Q8 mmproj",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF",
+        "revision": "75f1b73b657a50f5092502799457ccb4a4a1f9df",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "ggml-org",
+        "license": "qwen-research",
+        "license_review": "pending"
+      },
+      "artifacts": [
+        {
+          "name": "Qwen2.5-Omni-3B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 2104931648,
+          "sha256": "4b0bd358c1e9ec55dd3055ef6d71c958c821533d85916a10cfa89c4552a86e29",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF/resolve/75f1b73b657a50f5092502799457ccb4a4a1f9df/Qwen2.5-Omni-3B-Q4_K_M.gguf?download=true"
+        },
+        {
+          "name": "mmproj-Qwen2.5-Omni-3B-Q8_0.gguf",
+          "role": "projector",
+          "format": "GGUF Q8_0 mmproj",
+          "size_bytes": 1538031328,
+          "sha256": "4e6c816cd33f7298d07cb780c136a396631e50e62f6501660271f8c6e302e565",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/Qwen2.5-Omni-3B-GGUF/resolve/75f1b73b657a50f5092502799457ccb4a4a1f9df/mmproj-Qwen2.5-Omni-3B-Q8_0.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text",
+          "image",
+          "audio"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "unsupported": [
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false
+      }
+    },
+    {
+      "id": "qwen3.5-0.8b-q4-k-m-bartowski",
+      "display_name": "Qwen3.5 0.8B GGUF Q4_K_M + mmproj",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "FAILED_QUALITY",
+      "validation_label": "质量未通过",
+      "summary": "Bartowski 转换的轻量图文模型；已完成端侧实验，但 VLM 输出偏置未通过质量门禁。",
+      "parameter_label": "0.8B",
+      "quantization_label": "Q4_K_M + BF16 mmproj",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF",
+        "revision": "f36b1ea49a332ede8fe5f389bbf5b3575ef71f48",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "bartowski",
+        "license": "Apache-2.0",
+        "license_review": "cleared"
+      },
+      "artifacts": [
+        {
+          "name": "Qwen_Qwen3.5-0.8B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 579615840,
+          "sha256": "fb044e93939a70469c905781334f5de1e6c8b608ced6cbc8c9249bd4127d9526",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/f36b1ea49a332ede8fe5f389bbf5b3575ef71f48/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf?download=true"
+        },
+        {
+          "name": "mmproj-Qwen_Qwen3.5-0.8B-bf16.gguf",
+          "role": "projector",
+          "format": "GGUF BF16 mmproj",
+          "size_bytes": 207346400,
+          "sha256": "bc03706f1efeb7c7b819cbbe4d9f07a2c86980e697ea92c4f4b00a3c130b2a70",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/f36b1ea49a332ede8fe5f389bbf5b3575ef71f48/mmproj-Qwen_Qwen3.5-0.8B-bf16.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text",
+          "image"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "unsupported": [
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text",
+          "image"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "status": "quality_failed",
+        "scopes": [
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false
+      }
+    }
+  ]
+}

@@ -45,34 +45,28 @@ MobileCore 负责“模型如何在手机本地运行”。
 
 MobileCore 是下层 Runtime 与 API Server。
 
+### 2.3 Mobile Model Playground：移动模型适配与证据层
+
+Mobile Model Playground 负责“这个模型从哪里来、是谁转换、许可是否允许、在什么设备上验证过”。
+
+它的核心能力包括：
+
+- 固定上游仓库、revision、字节数与 SHA-256；
+- 区分 Harzva 转换、上游官方模型、第三方转换，并独立记录字节镜像分发方式；
+- 分开记录模型声明能力与 MobileCore 已实测能力；
+- 保存 llama.cpp、libmtmd、ONNX Runtime Mobile、MNN 等适配配方；
+- 管理许可证、质量、实体机与发布门禁；
+- 为 MobileCore 导出可离线使用的精简目录快照。
+
+Playground 不负责在手机上执行推理；MobileCore 不负责改写模型来源和转换归属。
+
 ## 3. 体系结构
 
-```text
-┌─────────────────────────────────────┐
-│             MobileCode               │
-│  Mobile Agent IDE / Harness           │
-│  - Workspace                          │
-│  - Git                                │
-│  - Files                              │
-│  - Agent Chat                         │
-│  - Tool Calling                       │
-└───────────────────┬─────────────────┘
-                    │ OpenAI-compatible API
-                    ▼
-┌─────────────────────────────────────┐
-│          MobileCore（推嘛）           │
-│  Local Model Runtime / API Server     │
-│  - Model Manager                      │
-│  - Inference Engine                   │
-│  - Benchmark                          │
-│  - Recommendation                     │
-│  - Local API                          │
-└───────────────────┬─────────────────┘
-                    ▼
-┌─────────────────────────────────────┐
-│ llama.cpp / MLC LLM / ONNX / NPU      │
-│ GGUF / MLC / ONNX / future formats    │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TB
+    MobileCode["MobileCode<br/>Agent IDE / Harness"] -->|OpenAI-compatible API| MobileCore["MobileCore（推嘛）<br/>Model Runtime / API Server"]
+    Playground["Mobile Model Playground<br/>Provenance / Recipes / Evals / SHA"] -->|curated catalog / evidence| MobileCore
+    MobileCore --> Backends["llama.cpp / MLC / ONNX / NPU<br/>GGUF / MLC / ONNX / future formats"]
 ```
 
 ## 4. 为什么要拆成两个 App

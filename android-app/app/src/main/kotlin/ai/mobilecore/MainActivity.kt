@@ -29,6 +29,9 @@ import ai.mobilecore.runtime.RuntimeBridge
 import ai.mobilecore.g2d.G2dBranchTool
 import ai.mobilecore.g2d.OxfordPetsG2dRunner
 import ai.mobilecore.g2d.OxfordPetsRunScale
+import ai.mobilecore.playground.PlaygroundArtifactOrigin
+import ai.mobilecore.playground.PlaygroundCatalogEntry
+import ai.mobilecore.playground.PlaygroundCatalogRepository
 import ai.mobilecore.service.MobileCoreService
 import ai.mobilecore.ui.BenchmarkLiveSnapshot
 import ai.mobilecore.ui.BenchmarkShareCardRenderer
@@ -59,6 +62,8 @@ import ai.mobilecore.ui.OmniLifecyclePresenter
 import ai.mobilecore.ui.OmniLifecycleScreen
 import ai.mobilecore.ui.OmniLifecycleSnapshot
 import ai.mobilecore.ui.Palette
+import ai.mobilecore.ui.PlaygroundLocalPhase
+import ai.mobilecore.ui.PlaygroundPresenter
 import ai.mobilecore.ui.ResultsScreenPresenter
 import ai.mobilecore.ui.StandardModelDownloadPhase
 import ai.mobilecore.ui.TuiMaCircularProgressView
@@ -234,7 +239,7 @@ class MainActivity : Activity() {
                     updateStatus("模型加载失败")
                 }
             }
-            if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) {
+            if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.PLAYGROUND, AppTab.TEST)) {
                 renderCurrentTab()
             }
         }
@@ -266,6 +271,9 @@ class MainActivity : Activity() {
             url = "https://modelscope.cn/models/unsloth/gemma-3-270m-it-GGUF/resolve/master/gemma-3-270m-it-Q4_K_M.gguf"
         )
     )
+    private val playgroundCatalog by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching { PlaygroundCatalogRepository(applicationContext).load() }.getOrNull()
+    }
     private val modelScopeSeeds = listOf(
         ModelScopeRepoSeed("unsloth", "gemma-3-270m-it-GGUF", "Gemma3 270M"),
         ModelScopeRepoSeed("unsloth", "gemma-3-1b-it-GGUF", "Gemma3 1B"),
@@ -385,6 +393,7 @@ class MainActivity : Activity() {
         when (currentTab) {
             AppTab.HOME -> renderHomeTab(contentRoot)
             AppTab.MODELS -> renderModelsTab(contentRoot)
+            AppTab.PLAYGROUND -> renderPlaygroundTab(contentRoot)
             AppTab.GALLERY -> renderGalleryTab(contentRoot)
             AppTab.VISION_MODELS -> renderVisionModelsTab(contentRoot)
             AppTab.G2D_LAB -> renderG2dLabTab(contentRoot)
@@ -442,17 +451,54 @@ class MainActivity : Activity() {
         content.addView(space(12))
         content.addView(buildStorageCard())
         content.addView(space(18))
-        content.addView(sectionTitle("适配本机", "优先展示内存压力更低的 6 个模型"))
+        content.addView(sectionTitle("可信模型广场", "来源、许可、哈希与端侧证据可追溯"))
+        content.addView(space(10))
+        content.addView(buildPlaygroundBrandCard())
+        content.addView(space(18))
+        content.addView(sectionTitle("社区候选", "按设备估算排序，不等同于 Playground 已验证"))
         content.addView(space(10))
         content.addView(buildFeaturedModelScopeCard())
         content.addView(space(18))
-        content.addView(sectionTitle("在线搜索", "从 ModelScope 查找更多 GGUF"))
+        content.addView(sectionTitle("社区搜索 · 未验证", "从 ModelScope 查找更多 GGUF，下载前自行核实来源"))
         content.addView(space(10))
         content.addView(buildModelScopeCatalogCard())
         content.addView(space(18))
         content.addView(sectionTitle("运行建议", "按设备能力和历史速度排序"))
         content.addView(space(10))
         content.addView(buildRecommendationCard())
+    }
+
+    private fun renderPlaygroundTab(content: LinearLayout) {
+        content.addView(buildCompactHeader("模型广场", "Mobile Model Playground", "cube"))
+        content.addView(space(12))
+        val catalog = playgroundCatalog
+        if (catalog == null) {
+            content.addView(
+                surfaceCard(Palette.lavender) {
+                    addView(cardHeader("目录不可用", "内置目录解析失败，未展示任何未验证来源。", "alert", Palette.lavender, "FAIL CLOSED"))
+                }
+            )
+            return
+        }
+        content.addView(
+            softInfoBlock(
+                "Playground 负责模型来源、转换者、许可、SHA-256 与证据；MobileCore 负责本机发现、加载与跑分。",
+                Palette.lavender,
+                maxLines = 4,
+            )
+        )
+        content.addView(space(10))
+        content.addView(
+            chipButton("查看 Playground 项目", false) {
+                openPlaygroundUrl(catalog.sourceRepository, "无法打开 Playground 项目")
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),
+        )
+        content.addView(space(16))
+        catalog.entries.forEachIndexed { index, entry ->
+            content.addView(buildPlaygroundEntryCard(entry))
+            if (index != catalog.entries.lastIndex) content.addView(space(10))
+        }
     }
 
     private fun renderTestTab(content: LinearLayout) {
@@ -1247,6 +1293,141 @@ class MainActivity : Activity() {
                 },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             )
+        }
+    }
+
+    private fun buildPlaygroundBrandCard(): View {
+        val catalog = playgroundCatalog
+        val entries = catalog?.entries.orEmpty()
+        val localNames = availableGgufModels().mapTo(linkedSetOf()) { it.name }
+        val activeName = activeModelPath?.let { File(it).name }
+        val installedCount = entries.count { entry ->
+            PlaygroundPresenter.present(entry, localNames, activeName).localPhase != PlaygroundLocalPhase.NOT_DOWNLOADED
+        }
+        val recommendedCount = entries.count { entry ->
+            PlaygroundPresenter.present(entry, localNames, activeName).recommended
+        }
+        return surfaceCard(Palette.lavender, gradient = true) {
+            addView(
+                cardHeader(
+                    "Mobile Model Playground",
+                    "移动模型适配、来源与端侧证据广场",
+                    "cube",
+                    Palette.lavender,
+                    if (catalog == null) "目录异常" else "${entries.size} 个",
+                    if (catalog == null) Palette.danger else Palette.lavender,
+                )
+            )
+            addView(space(12))
+            if (catalog == null) {
+                addView(softInfoBlock("内置目录解析失败；为避免误导，社区模型不会被标记为已验证。", Palette.danger, 3))
+            } else {
+                addView(readinessRow("可信来源", "固定 revision 与 SHA-256", true, Palette.lavender))
+                addView(thinDivider())
+                addView(readinessRow("本地发现", "$installedCount / ${entries.size} 个", installedCount > 0, Palette.blue))
+                addView(thinDivider())
+                addView(readinessRow("当前推荐", "$recommendedCount 个通过展示门禁", recommendedCount > 0, Palette.mintDark))
+                addView(space(11))
+                addView(
+                    chipButton("打开模型广场", false) { setTab(AppTab.PLAYGROUND) },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)),
+                )
+            }
+        }
+    }
+
+    private fun buildPlaygroundEntryCard(entry: PlaygroundCatalogEntry): View {
+        val localNames = availableGgufModels().mapTo(linkedSetOf()) { it.name }
+        val activeName = activeModelPath?.let { File(it).name }
+        val model = PlaygroundPresenter.present(entry, localNames, activeName)
+        val accent = playgroundOriginAccent(entry.origin)
+        val artifactBytes = entry.artifacts.sumOf { it.sizeBytes }
+        val declaredInputs = entry.declaredCapabilities.inputs.joinToString(" / ").ifBlank { "未声明" }
+        val declaredOutputs = entry.declaredCapabilities.outputs.joinToString(" / ").ifBlank { "未声明" }
+        val verifiedInputs = entry.verifiedCapabilities.inputs.joinToString(" / ")
+        val verifiedOutputs = entry.verifiedCapabilities.outputs.joinToString(" / ")
+        val verifiedCapabilityLabel = when (entry.verifiedCapabilities.status) {
+            "pass" -> "$verifiedInputs → $verifiedOutputs"
+            "quality_failed" -> "$verifiedInputs → $verifiedOutputs · 质量未通过"
+            else -> "尚未实测"
+        }
+        return surfaceCard(accent) {
+            addView(
+                LinearLayout(context).apply {
+                    gravity = Gravity.TOP
+                    addView(
+                        LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            addView(label(model.title, 14.2f, Palette.ink, Typeface.BOLD).apply { maxLines = 3 })
+                            if (model.metadata.isNotBlank()) {
+                                addView(space(4))
+                                addView(label("${model.metadata} · ${formatBytes(artifactBytes)}", 11.2f, Palette.muted, Typeface.BOLD).apply { maxLines = 2 })
+                            }
+                        },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) },
+                    )
+                    addView(
+                        chip(label(model.originLabel, 10.2f, accent, Typeface.BOLD), tint(accent, 0.11f), accent),
+                        LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)),
+                    )
+                }
+            )
+            addView(space(8))
+            addView(label("${model.attributionLabel} · ${entry.source.license} · ${entry.source.revision.take(8)}", 11.2f, Palette.muted, Typeface.NORMAL).apply { maxLines = 3 })
+            addView(space(7))
+            addView(label(entry.summary, 11.8f, tint(Palette.ink, 0.72f), Typeface.NORMAL).apply {
+                maxLines = 4
+                setLineSpacing(dp(2).toFloat(), 1f)
+            })
+            addView(space(10))
+            addView(readinessRow("声明能力", "$declaredInputs → $declaredOutputs", false, Palette.muted))
+            addView(thinDivider())
+            addView(
+                readinessRow(
+                    "实测能力",
+                    verifiedCapabilityLabel,
+                    model.validationPassed,
+                    if (model.validationPassed) Palette.mintDark else Palette.amber,
+                )
+            )
+            addView(thinDivider())
+            addView(readinessRow("证据门禁", model.validationLabel, model.validationPassed, if (model.validationPassed) Palette.mintDark else Palette.amber))
+            addView(thinDivider())
+            addView(readinessRow("本机状态", model.localStatusLabel, false, Palette.blue))
+            addView(label(model.localStatusDetail, 10.8f, Palette.muted, Typeface.NORMAL).apply {
+                setPadding(dp(2), dp(5), dp(2), 0)
+                maxLines = 2
+            })
+            addView(space(10))
+            addView(
+                chipButton("查看固定来源", false) { openPlaygroundSource(entry) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)),
+            )
+            contentDescription = listOf(
+                model.title,
+                PlaygroundPresenter.originAccessibilityLabel(entry.origin),
+                model.validationLabel,
+                model.localStatusLabel,
+            ).joinToString("，")
+        }
+    }
+
+    private fun playgroundOriginAccent(origin: PlaygroundArtifactOrigin): Int = when (origin) {
+        PlaygroundArtifactOrigin.HARZVA -> Palette.mintDark
+        PlaygroundArtifactOrigin.UPSTREAM -> Palette.blue
+        PlaygroundArtifactOrigin.THIRD_PARTY -> Palette.lavender
+        PlaygroundArtifactOrigin.RECIPE -> Palette.muted
+    }
+
+    private fun openPlaygroundSource(entry: PlaygroundCatalogEntry) {
+        openPlaygroundUrl(entry.source.repository, "无法打开模型来源")
+    }
+
+    private fun openPlaygroundUrl(url: String, failureMessage: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(this, failureMessage, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -3474,7 +3655,7 @@ class MainActivity : Activity() {
                 refreshRecommendationSnapshot()
                 syncBenchmarkReadiness()
                 progressEndIfNeeded()
-                if (currentTab == AppTab.MODELS) renderCurrentTab()
+                if (currentTab in setOf(AppTab.MODELS, AppTab.PLAYGROUND)) renderCurrentTab()
             }
         } catch (_: DownloadPausedException) {
             state.status = DownloadState.PAUSED
@@ -3492,7 +3673,7 @@ class MainActivity : Activity() {
                 updateStatus("${item.shortName} 下载已暂停")
                 Toast.makeText(this, "${item.shortName} 已暂停", Toast.LENGTH_SHORT).show()
                 progressEndIfNeeded()
-                if (currentTab == AppTab.MODELS) renderCurrentTab()
+                if (currentTab in setOf(AppTab.MODELS, AppTab.PLAYGROUND)) renderCurrentTab()
             }
         } catch (e: Exception) {
             state.status = DownloadState.FAILED
@@ -3505,7 +3686,7 @@ class MainActivity : Activity() {
                 updateStatus("模型下载失败：${readableDownloadError(e)}")
                 Toast.makeText(this, "模型下载失败", Toast.LENGTH_LONG).show()
                 progressEndIfNeeded()
-                if (currentTab == AppTab.MODELS) renderCurrentTab()
+                if (currentTab in setOf(AppTab.MODELS, AppTab.PLAYGROUND)) renderCurrentTab()
             }
         } finally {
             connection?.disconnect()
@@ -3860,6 +4041,7 @@ class MainActivity : Activity() {
     private enum class AppTab {
         HOME,
         MODELS,
+        PLAYGROUND,
         GALLERY,
         VISION_MODELS,
         G2D_LAB,
@@ -3890,9 +4072,11 @@ class MainActivity : Activity() {
     }
 
     private fun navItem(title: String, icon: String, tab: AppTab): View {
-        val selected = currentTab == tab || (tab == AppTab.SETTINGS && currentTab in setOf(
-            AppTab.GALLERY, AppTab.VISION_MODELS, AppTab.G2D_LAB, AppTab.VISION, AppTab.OMNI, AppTab.API
-        ))
+        val selected = currentTab == tab ||
+            (tab == AppTab.MODELS && currentTab == AppTab.PLAYGROUND) ||
+            (tab == AppTab.SETTINGS && currentTab in setOf(
+                AppTab.GALLERY, AppTab.VISION_MODELS, AppTab.G2D_LAB, AppTab.VISION, AppTab.OMNI, AppTab.API
+            ))
         val accent = if (selected) Palette.mint else Palette.muted
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -4359,7 +4543,7 @@ class MainActivity : Activity() {
                     modelLoadFailurePath = null
                     modelLoadFailureMessage = null
                 }
-                if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) renderCurrentTab()
+                if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.PLAYGROUND, AppTab.TEST)) renderCurrentTab()
             },
             onError = { /* A stopped local service is a valid idle state. */ },
         )
@@ -5424,7 +5608,7 @@ class MainActivity : Activity() {
         }
         startService(intent)
         updateStatus("正在加载模型：${model.name}")
-        if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.TEST)) renderCurrentTab()
+        if (currentTab in setOf(AppTab.HOME, AppTab.MODELS, AppTab.PLAYGROUND, AppTab.TEST)) renderCurrentTab()
     }
 
     private fun findPreferredGguf(): File? {
