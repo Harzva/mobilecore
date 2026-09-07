@@ -216,7 +216,7 @@ object PlaygroundPresenter {
         val distributionLabel = when {
             entry.distribution.mode == "huggingface_model_repo" && entry.distribution.downloadable ->
                 "Hugging Face 已校验 · 提供固定直链"
-            entry.distribution.downloadable -> "已发布 · 可直接下载"
+            entry.distribution.downloadable -> "来源仓已发布 · 可直接下载"
             entry.distribution.mode == "gitcode_model_repo" &&
                 entry.distribution.publicationState == "POST_PUBLISH_VERIFIED" &&
                 entry.distribution.installTransport == "git_lfs_batch" ->

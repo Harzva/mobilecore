@@ -74,6 +74,16 @@ class PlaygroundPresenterTest {
     }
 
     @Test
+    fun `upstream direct download does not imply a harzva publication`() {
+        val entry = catalog.entries.first { it.id == "qwen2.5-coder-0.5b-instruct-q4-k-m-official" }
+        val model = PlaygroundPresenter.present(entry, emptySet(), null)
+        assertTrue(entry.distribution.downloadable)
+        assertEquals("来源仓已发布 · 可直接下载", model.distributionLabel)
+        assertEquals("上游官方", model.originLabel)
+        assertFalse(model.attributionLabel.contains("Harzva"))
+    }
+
+    @Test
     fun `featured entry still needs cleared license and verified capabilities`() {
         val base = catalog.entries.first { it.id == "qwen2.5-omni-3b-q4-k-m-ggml-org" }
         val featured = base.copy(featured = true)

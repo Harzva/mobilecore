@@ -2,6 +2,7 @@ package ai.mobilecore.playground
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONObject
@@ -14,7 +15,8 @@ class PlaygroundCatalogTest {
     @Test
     fun `bundled catalog preserves publishers and provenance`() {
         val catalog = PlaygroundCatalogParser.parse(assetText())
-        assertEquals(6, catalog.entries.size)
+        assertTrue("The bundled Playground must expose at least 20 distinct models", catalog.entries.size >= 20)
+        assertEquals(catalog.entries.size, catalog.entries.map { it.id }.toSet().size)
 
         val qwenOfficial = catalog.entries.first { it.id == "qwen2.5-0.5b-instruct-q4-k-m-official" }
         assertEquals(PlaygroundArtifactOrigin.UPSTREAM, qwenOfficial.origin)
@@ -46,6 +48,26 @@ class PlaygroundCatalogTest {
             harzva.distribution.repositoryUrl,
         )
         assertTrue(harzva.artifacts.single().sourceUrl!!.contains(harzva.distribution.revision!!))
+    }
+
+    @Test
+    fun `expanded source catalog does not grant installation or device evidence`() {
+        val catalog = PlaygroundCatalogParser.parse(assetText())
+        val liquid = catalog.entries.first { it.id == "lfm2-350m-q4-k-m-official" }
+        assertEquals("pending", liquid.source.licenseReview)
+        assertFalse(liquid.distribution.downloadable)
+        assertFalse(liquid.distribution.mirrorEligible)
+
+        val smolVlm = catalog.entries.first { it.id == "smolvlm-256m-instruct-q8-0-ggml-org" }
+        assertEquals(2, smolVlm.artifacts.size)
+        assertTrue(smolVlm.declaredCapabilities.inputs.contains("image"))
+        assertFalse(smolVlm.verifiedCapabilities.scopes.contains("physical_device"))
+
+        catalog.entries.filter { it.state == "PROVENANCE_LOCKED" }.forEach {
+            assertFalse(it.distribution.downloadable)
+            assertEquals("unverified", it.verifiedCapabilities.status)
+            assertTrue(it.verifiedCapabilities.inputs.isEmpty())
+        }
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -101,6 +123,82 @@ class PlaygroundCatalogTest {
                 entry.getJSONObject("distribution").put("downloadable", true)
             }
         }
+        PlaygroundCatalogParser.parse(root.toString())
+    }
+
+    @Test
+    fun `legacy catalog without license review scope remains valid`() {
+        val root = JSONObject(assetText())
+        val entries = root.getJSONArray("entries")
+        for (index in 0 until entries.length()) {
+            entries.getJSONObject(index).getJSONObject("source").remove("license_review_scope")
+        }
+
+        val catalog = PlaygroundCatalogParser.parse(root.toString())
+
+        catalog.entries.forEach { assertNull(it.source.licenseReviewScope) }
+        assertTrue(catalog.entries.first { it.id == "qwen3-0.6b-q4-k-m" }.distribution.downloadable)
+    }
+
+    @Test
+    fun `canonical review scope preserves existing download eligibility`() {
+        val root = JSONObject(assetText())
+        val entry = root.getJSONArray("entries").getJSONObject(0)
+        entry.getJSONObject("source").put(
+            "license_review_scope",
+            "canonical_upstream_reference_and_direct_download",
+        )
+
+        val parsed = PlaygroundCatalogParser.parse(root.toString()).entries.first()
+
+        assertEquals("canonical_upstream_reference_and_direct_download", parsed.source.licenseReviewScope)
+        assertTrue(parsed.distribution.downloadable)
+    }
+
+    @Test
+    fun `source link only scope remains valid when downloads are disabled`() {
+        val root = JSONObject(assetText())
+        val entry = root.getJSONArray("entries").getJSONObject(0)
+        entry.getJSONObject("source").put("license_review_scope", "source_link_only")
+        entry.getJSONObject("distribution").put("downloadable", false)
+
+        val parsed = PlaygroundCatalogParser.parse(root.toString()).entries.first()
+
+        assertEquals("source_link_only", parsed.source.licenseReviewScope)
+        assertFalse(parsed.distribution.downloadable)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `source link only review cannot become downloadable even with cleared license`() {
+        val root = JSONObject(assetText())
+        val entry = root.getJSONArray("entries").getJSONObject(0)
+        entry.getJSONObject("source")
+            .put("license_review", "cleared")
+            .put("license_review_scope", "source_link_only")
+        entry.getJSONObject("distribution").put("downloadable", true)
+
+        PlaygroundCatalogParser.parse(root.toString())
+    }
+
+    @Test
+    fun `present license review scope requires a supported non null string`() {
+        listOf("", "direct_download", 1, true, JSONObject.NULL).forEach { invalidScope ->
+            val root = JSONObject(assetText())
+            root.getJSONArray("entries").getJSONObject(0).getJSONObject("source")
+                .put("license_review_scope", invalidScope)
+
+            val failure = runCatching { PlaygroundCatalogParser.parse(root.toString()) }.exceptionOrNull()
+
+            assertTrue("Unsupported review scope must be rejected", failure is IllegalArgumentException)
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `source rejects unknown fields including misspelled review scope`() {
+        val root = JSONObject(assetText())
+        root.getJSONArray("entries").getJSONObject(0).getJSONObject("source")
+            .put("license_review_scopes", "source_link_only")
+
         PlaygroundCatalogParser.parse(root.toString())
     }
 

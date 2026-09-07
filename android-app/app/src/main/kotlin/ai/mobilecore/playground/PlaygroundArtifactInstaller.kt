@@ -162,6 +162,9 @@ data class PlaygroundInstallSpec(
                 "catalog entry is not a direct HTTPS distribution"
             }
             require(entry.source.licenseReview == "cleared") { "model license is not cleared" }
+            require(entry.source.licenseReviewScope != "source_link_only") {
+                "source-link-only license review does not permit installation"
+            }
 
             val repositoryUrl = entry.distribution.repositoryUrl ?: entry.source.repository
             val revision = entry.distribution.revision ?: entry.source.revision

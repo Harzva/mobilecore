@@ -208,6 +208,35 @@ class PlaygroundArtifactInstallerTest {
     }
 
     @Test
+    fun `install contract rejects source link only scope even with tampered eligibility flags`() {
+        val catalog = PlaygroundCatalogParser.parse(
+            File("src/main/assets/mobile-model-playground/catalog-v1.json").readText()
+        )
+        val entry = catalog.entries.first { it.id == "qwen3-0.6b-q4-k-m" }
+        val sourceLinkOnly = entry.copy(
+            source = entry.source.copy(licenseReview = "cleared", licenseReviewScope = "source_link_only"),
+            distribution = entry.distribution.copy(downloadable = true, installTransport = "https_direct"),
+        )
+
+        assertFails { PlaygroundInstallSpec.fromCatalogEntry(sourceLinkOnly) }
+    }
+
+    @Test
+    fun `install contract accepts legacy and canonical review scopes`() {
+        val catalog = PlaygroundCatalogParser.parse(
+            File("src/main/assets/mobile-model-playground/catalog-v1.json").readText()
+        )
+        val entry = catalog.entries.first { it.id == "qwen3-0.6b-q4-k-m" }
+        val legacy = entry.copy(source = entry.source.copy(licenseReviewScope = null))
+        val canonical = entry.copy(
+            source = entry.source.copy(licenseReviewScope = "canonical_upstream_reference_and_direct_download"),
+        )
+
+        assertNotNull(PlaygroundInstallSpec.fromCatalogEntry(legacy))
+        assertNotNull(PlaygroundInstallSpec.fromCatalogEntry(canonical))
+    }
+
+    @Test
     fun `verified install has explicit loading loaded and load failure states`() {
         val installer = installer(CopyingTransport(payload))
         assertTrue(installer.install().await(5_000L))

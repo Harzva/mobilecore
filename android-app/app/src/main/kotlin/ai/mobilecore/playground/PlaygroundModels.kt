@@ -28,6 +28,7 @@ data class PlaygroundSource(
     val conversionPublisher: String,
     val license: String,
     val licenseReview: String,
+    val licenseReviewScope: String? = null,
 )
 
 data class PlaygroundArtifact(
@@ -129,6 +130,19 @@ object PlaygroundCatalogParser {
         "FAILED_RESOURCE_BUDGET",
     )
     private val allowedLicenseReviews = setOf("cleared", "pending", "blocked")
+    private val allowedLicenseReviewScopes = setOf(
+        "canonical_upstream_reference_and_direct_download",
+        "source_link_only",
+    )
+    private val allowedSourceKeys = setOf(
+        "repository",
+        "revision",
+        "upstream_publisher",
+        "conversion_publisher",
+        "license",
+        "license_review",
+        "license_review_scope",
+    )
     private val allowedDistributions = setOf("external", "gitcode_lfs", "not_distributed")
     private val allowedVerifiedStatuses = setOf("pass", "quality_failed", "unverified")
     private val allowedDistributionModes = setOf(
@@ -181,8 +195,16 @@ object PlaygroundCatalogParser {
         require(state in allowedStates) { "unsupported model state" }
 
         val sourceJson = value.getJSONObject("source")
+        require(sourceJson.keys().asSequence().all { it in allowedSourceKeys }) { "unsupported source field" }
         val licenseReview = sourceJson.getString("license_review")
         require(licenseReview in allowedLicenseReviews) { "unsupported license review state" }
+        val licenseReviewScope = if (sourceJson.has("license_review_scope")) {
+            val scope = sourceJson.get("license_review_scope")
+            require(scope is String && scope in allowedLicenseReviewScopes) { "unsupported license review scope" }
+            scope
+        } else {
+            null
+        }
         val revision = sourceJson.getString("revision")
         require(revisionPattern.matches(revision)) { "source revision must be an immutable commit" }
         val source = PlaygroundSource(
@@ -192,6 +214,7 @@ object PlaygroundCatalogParser {
             conversionPublisher = sourceJson.getString("conversion_publisher").also { require(it.isNotBlank()) },
             license = sourceJson.getString("license").also { require(it.isNotBlank()) },
             licenseReview = licenseReview,
+            licenseReviewScope = licenseReviewScope,
         )
 
         val artifactsJson = value.getJSONArray("artifacts")
@@ -243,6 +266,9 @@ object PlaygroundCatalogParser {
             ?.also { require(it in allowedPublicationStates) { "unsupported publication state" } }
         require(!downloadable || published) { "downloadable artifact must be published" }
         require(!downloadable || licenseReview == "cleared") { "downloadable artifact requires cleared license" }
+        require(!downloadable || licenseReviewScope != "source_link_only") {
+            "source-link-only license review does not permit download"
+        }
         require(!downloadable || verifiedStatus == "pass") { "downloadable artifact requires verified capability" }
         require(!downloadable || state in downloadableStates) { "downloadable artifact requires a positive validation state" }
         require(!downloadable || installTransport == "https_direct") {

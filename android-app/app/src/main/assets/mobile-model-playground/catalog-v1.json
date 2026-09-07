@@ -2,7 +2,7 @@
   "schema_version": 1,
   "catalog_id": "mobile-model-playground-v1",
   "source_repository": "https://github.com/Harzva/mobile-model-playground",
-  "registry_digest_sha256": "9e8731b8741056d77258a6ee592f43d8f8f47ad2f7b08c4ecb7108b5aefa0f58",
+  "registry_digest_sha256": "7d862d0f51065272f067840aba5f9ac1df7c3b143751bfd77026d102d50036d4",
   "entries": [
     {
       "id": "qwen2.5-0.5b-instruct-q4-k-m-official",
@@ -278,6 +278,618 @@
       }
     },
     {
+      "id": "lfm2-1.2b-q4-k-m-official",
+      "display_name": "LFM2 1.2B GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "LiquidAI 官方 1.2B 文本 GGUF；自定义许可证待审，尚无本项目运行验证。",
+      "parameter_label": "1.2B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/LiquidAI/LFM2-1.2B-GGUF",
+        "revision": "5399e76c648f4eb8c053feb1ab747277dea5bf8b",
+        "upstream_publisher": "LiquidAI",
+        "conversion_publisher": "LiquidAI",
+        "license": "lfm1.0",
+        "license_review": "pending",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "LFM2-1.2B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 730893248,
+          "sha256": "55175400e3f509a9616227afeffd58d87e80b9f628a5d3d54ada884d85221fed",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/LiquidAI/LFM2-1.2B-GGUF/resolve/5399e76c648f4eb8c053feb1ab747277dea5bf8b/LFM2-1.2B-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "lfm2-350m-q4-k-m-official",
+      "display_name": "LFM2 350M GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "LiquidAI 官方 350M 文本 GGUF；自定义许可证待审，尚无本项目运行验证。",
+      "parameter_label": "350M",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/LiquidAI/LFM2-350M-GGUF",
+        "revision": "8fdc9d526b7ed346b19257551b05816c7912ecc2",
+        "upstream_publisher": "LiquidAI",
+        "conversion_publisher": "LiquidAI",
+        "license": "lfm1.0",
+        "license_review": "pending",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "LFM2-350M-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 229309376,
+          "sha256": "a4d000c7064bd3b2e42c6845836286a899a4e79cf1791da1a6797b58d575957d",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/LiquidAI/LFM2-350M-GGUF/resolve/8fdc9d526b7ed346b19257551b05816c7912ecc2/LFM2-350M-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "lfm2-700m-q4-k-m-official",
+      "display_name": "LFM2 700M GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "LiquidAI 官方 700M 文本 GGUF；自定义许可证待审，尚无本项目运行验证。",
+      "parameter_label": "700M",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/LiquidAI/LFM2-700M-GGUF",
+        "revision": "fd39e80d7a5ac61494ffff577e61bbbfddbd0d02",
+        "upstream_publisher": "LiquidAI",
+        "conversion_publisher": "LiquidAI",
+        "license": "lfm1.0",
+        "license_review": "pending",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "LFM2-700M-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 468624320,
+          "sha256": "684e8406dc13321452b3f6aeca432776e2a6a7e1ad6c23f7887b8fe3efbe2efa",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/LiquidAI/LFM2-700M-GGUF/resolve/fd39e80d7a5ac61494ffff577e61bbbfddbd0d02/LFM2-700M-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-1.5b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 1.5B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Qwen 官方 1.5B 对话模型；固定 GGUF 通过主机与 Android AVD 文本冒烟（各 3/3）、加载和卸载；非真机性能或任务质量验证。",
+      "parameter_label": "1.5B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+        "revision": "91cad51170dc346986eccefdc2dd33a9da36ead9",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "canonical_upstream_reference_and_direct_download"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 1117320736,
+          "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": true,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-3b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 3B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "Qwen 官方 GGUF 候选；仅锁定公开来源与 LFS 元数据，尚未完成 MobileCore 运行验证。自定义许可证审核待定。",
+      "parameter_label": "3B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF",
+        "revision": "7dabda4d13d513e3e842b20f0d435c732f172cbe",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "qwen-research",
+        "license_review": "pending",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-3b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 2104932768,
+          "sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-coder-0.5b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 Coder 0.5B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Qwen 官方代码模型；固定 GGUF 通过主机与 Android AVD 文本冒烟（各 3/3）、加载和卸载；非真机性能或任务质量验证。",
+      "parameter_label": "0.5B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF",
+        "revision": "ebb2015119c907b064c512bf053e945850b5875f",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "canonical_upstream_reference_and_direct_download"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-coder-0.5b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 491400064,
+          "sha256": "1d9614638d18024d0fbb36575a15f1302a3adf044df10345688ec4f6e1c4ff32",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/ebb2015119c907b064c512bf053e945850b5875f/qwen2.5-coder-0.5b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": true,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-coder-1.5b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 Coder 1.5B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Qwen 官方 1.5B 代码模型；固定 GGUF 通过主机与 Android AVD 文本冒烟（各 3/3）、加载和卸载；非真机性能或任务质量验证。",
+      "parameter_label": "1.5B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF",
+        "revision": "f86cb2c1fa58255f8052cc32aeede1b7482d4361",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "canonical_upstream_reference_and_direct_download"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 1117320768,
+          "sha256": "cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/f86cb2c1fa58255f8052cc32aeede1b7482d4361/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": true,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-coder-3b-instruct-q4-k-m-official",
+      "display_name": "Qwen2.5 Coder 3B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "BLOCKED_LICENSE",
+      "validation_label": "许可阻止镜像",
+      "summary": "Qwen 官方 GGUF 候选；仅锁定公开来源与 LFS 元数据，尚未完成 MobileCore 运行验证。自定义许可证审核待定。",
+      "parameter_label": "3B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
+        "revision": "f74adce6aa16316c625447af059dbebe4983757c",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "qwen-research",
+        "license_review": "pending",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 2104932800,
+          "sha256": "724fb256bec1ff062b2f65e4569e871ad2e95ab2a3989723d1769c54294730b7",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/f74adce6aa16316c625447af059dbebe4983757c/qwen2.5-coder-3b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen2.5-math-1.5b-instruct-q4-k-m-bartowski",
+      "display_name": "Qwen2.5 Math 1.5B Instruct GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "FAILED_QUALITY",
+      "validation_label": "质量未通过",
+      "summary": "Bartowski 转换的数学 GGUF；主机将输出预算调至 256 后通过基础检查，但 Android 在 32/256 预算下均出现提问复述循环（2/3），保留失败状态，不开放安装。",
+      "parameter_label": "1.5B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/bartowski/Qwen2.5-Math-1.5B-Instruct-GGUF",
+        "revision": "951ed2aea09c43e331c612e74d83e4a23ca98e3b",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "bartowski",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "Qwen2.5-Math-1.5B-Instruct-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 986048832,
+          "sha256": "9614a50f03c897028920ca0dc4365da570bf587f9ee7768261216fe370b37e8e",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/Qwen2.5-Math-1.5B-Instruct-GGUF/resolve/951ed2aea09c43e331c612e74d83e4a23ca98e3b/Qwen2.5-Math-1.5B-Instruct-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "quality_failed",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
       "id": "qwen2.5-omni-3b-q4-k-m-ggml-org",
       "display_name": "Qwen2.5-Omni 3B GGUF Q4_K_M + Q8 mmproj",
       "artifact_origin": "third_party_conversion",
@@ -330,6 +942,134 @@
           "libmtmd"
         ],
         "unsupported": [
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen3-1.7b-q4-k-m-unsloth",
+      "display_name": "Qwen3 1.7B GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "Qwen 原始模型；unsloth 转换 GGUF 候选；仅锁定公开来源与 LFS 元数据，尚未完成 MobileCore 运行验证。",
+      "parameter_label": "1.7B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF",
+        "revision": "d7f544eead698dbd1f15126ef60b45a1e1933222",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "unsloth",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "Qwen3-1.7B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 1107409472,
+          "sha256": "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/d7f544eead698dbd1f15126ef60b45a1e1933222/Qwen3-1.7B-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "qwen3-4b-q4-k-m-official",
+      "display_name": "Qwen3 4B GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "Qwen 官方 GGUF 候选；仅锁定公开来源与 LFS 元数据，尚未完成 MobileCore 运行验证。",
+      "parameter_label": "4B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/Qwen/Qwen3-4B-GGUF",
+        "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+        "upstream_publisher": "Qwen",
+        "conversion_publisher": "Qwen",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "Qwen3-4B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 2497280256,
+          "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
           "video_input",
           "audio_output"
         ]
@@ -423,6 +1163,504 @@
         "scopes": [
           "android_avd"
         ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smollm2-1.7b-instruct-q4-k-m-official",
+      "display_name": "SmolLM2 1.7B Instruct GGUF Q4_K_M",
+      "artifact_origin": "upstream_native",
+      "origin_label": "上游官方",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "HuggingFaceTB 发布的文本 GGUF，模型卡注明 ngxson 转换；尚无本项目运行验证。",
+      "parameter_label": "1.7B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+        "revision": "2d4a76a30b4af41ecd395c35725ac11688d4cfe4",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "HuggingFaceTB",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "smollm2-1.7b-instruct-q4_k_m.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 1055609536,
+          "sha256": "decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/2d4a76a30b4af41ecd395c35725ac11688d4cfe4/smollm2-1.7b-instruct-q4_k_m.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smollm2-135m-instruct-q4-k-m-bartowski",
+      "display_name": "SmolLM2 135M Instruct GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "FAILED_QUALITY",
+      "validation_label": "质量未通过",
+      "summary": "135M 文本 GGUF；主机基础检查仅 2/3（复述任务拒绝），Android 关键词检查 3/3；跨运行环境结果不一致，保留质量未通过状态。",
+      "parameter_label": "135M",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF",
+        "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "bartowski",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "SmolLM2-135M-Instruct-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 105454432,
+          "sha256": "2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "quality_failed",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smollm2-360m-instruct-q4-k-m-bartowski",
+      "display_name": "SmolLM2 360M Instruct GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "Bartowski 转换的 360M 文本模型；固定 GGUF 通过主机与 Android AVD 文本冒烟（各 3/3）、加载和卸载；非真机性能或任务质量验证。",
+      "parameter_label": "360M",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF",
+        "revision": "7be6f65f1db715fe5dc5a4634c0d459b4eed42ec",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "bartowski",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "canonical_upstream_reference_and_direct_download"
+      },
+      "artifacts": [
+        {
+          "name": "SmolLM2-360M-Instruct-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 270590880,
+          "sha256": "2fa3f013dcdd7b99f9b237717fa0b12d75bbb89984cc1274be1471a465bac9c2",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/7be6f65f1db715fe5dc5a4634c0d459b4eed42ec/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": true,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smollm3-3b-q4-k-m-bartowski",
+      "display_name": "SmolLM3 3B GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "Bartowski 转换的 SmolLM3 3B 文本 GGUF；已锁定来源，尚无本项目运行验证。",
+      "parameter_label": "3B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/bartowski/HuggingFaceTB_SmolLM3-3B-GGUF",
+        "revision": "86b3536ed1ca0dcb4716745642db4e6804bf3d32",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "bartowski",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "HuggingFaceTB_SmolLM3-3B-Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 1915305792,
+          "sha256": "519732558d5fa7420ab058e1b776dcfe73da78013c2fe59c7ca43c325ef89132",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/bartowski/HuggingFaceTB_SmolLM3-3B-GGUF/resolve/86b3536ed1ca0dcb4716745642db4e6804bf3d32/HuggingFaceTB_SmolLM3-3B-Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smolvlm-256m-instruct-q8-0-ggml-org",
+      "display_name": "SmolVLM 256M Instruct GGUF Q8_0 + mmproj",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "EMULATOR_CONTRACT_CHECKED",
+      "validation_label": "模拟器实测",
+      "summary": "ggml-org 的 SmolVLM 双文件包；主机与 Android AVD 均通过文本及红绿蓝色块图像冒烟（各 6/6），非真实场景视觉质量或真机验证。",
+      "parameter_label": "256M",
+      "quantization_label": "Q8_0 + Q8_0 mmproj",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF",
+        "revision": "b9e4379657e1450d04d02eec8e345667265b0a00",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "ggml-org",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "canonical_upstream_reference_and_direct_download"
+      },
+      "artifacts": [
+        {
+          "name": "SmolVLM-256M-Instruct-Q8_0.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q8_0",
+          "size_bytes": 175054528,
+          "sha256": "2a31195d3769c0b0fd0a4906201666108834848db768af11de1d2cef7cd35e65",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/SmolVLM-256M-Instruct-Q8_0.gguf?download=true"
+        },
+        {
+          "name": "mmproj-SmolVLM-256M-Instruct-Q8_0.gguf",
+          "role": "projector",
+          "format": "GGUF Q8_0 mmproj",
+          "size_bytes": 103769856,
+          "sha256": "7e943f7c53f0382a6fc41b6ee0c2def63ba4fded9ab8ed039cc9e2ab905e0edd",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/SmolVLM-256M-Instruct-GGUF/resolve/b9e4379657e1450d04d02eec8e345667265b0a00/mmproj-SmolVLM-256M-Instruct-Q8_0.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text",
+          "image"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "unsupported": [
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [
+          "text",
+          "image"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "status": "pass",
+        "scopes": [
+          "host_smoke",
+          "host_image_smoke",
+          "android_avd"
+        ]
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": true,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "smolvlm-500m-instruct-q8-0-ggml-org",
+      "display_name": "SmolVLM 500M Instruct GGUF Q8_0 + mmproj",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "ggml-org 提供的 500M 图文 GGUF，包含同版本 Q8_0 视觉投影；尚无本项目运行验证。",
+      "parameter_label": "500M",
+      "quantization_label": "Q8_0 + Q8_0 mmproj",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF",
+        "revision": "72e986006ef53e37cdd3f6d4241c90b0f01df376",
+        "upstream_publisher": "HuggingFaceTB",
+        "conversion_publisher": "ggml-org",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "SmolVLM-500M-Instruct-Q8_0.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q8_0",
+          "size_bytes": 436806912,
+          "sha256": "9d4612de6a42214499e301494a3ecc2be0abdd9de44e663bda63f1152fad1bf4",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/72e986006ef53e37cdd3f6d4241c90b0f01df376/SmolVLM-500M-Instruct-Q8_0.gguf?download=true"
+        },
+        {
+          "name": "mmproj-SmolVLM-500M-Instruct-Q8_0.gguf",
+          "role": "projector",
+          "format": "GGUF Q8_0 mmproj",
+          "size_bytes": 108783360,
+          "sha256": "d1eb8b6b23979205fdf63703ed10f788131a3f812c7b1f72e0119d5d81295150",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/72e986006ef53e37cdd3f6d4241c90b0f01df376/mmproj-SmolVLM-500M-Instruct-Q8_0.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text",
+          "image"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp",
+          "libmtmd"
+        ],
+        "unsupported": [
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
+      },
+      "distribution": {
+        "mode": "upstream_link",
+        "mirror_eligible": false,
+        "publishable": false,
+        "published": true,
+        "downloadable": false,
+        "install_transport": "https_direct"
+      }
+    },
+    {
+      "id": "tinyllama-1.1b-chat-v1.0-q4-k-m-thebloke",
+      "display_name": "TinyLlama 1.1B Chat v1.0 GGUF Q4_K_M",
+      "artifact_origin": "third_party_conversion",
+      "origin_label": "第三方转换",
+      "state": "PROVENANCE_LOCKED",
+      "validation_label": "来源已锁定",
+      "summary": "TheBloke 转换的 TinyLlama 1.1B 对话 GGUF；已锁定来源，尚无本项目运行验证。",
+      "parameter_label": "1.1B",
+      "quantization_label": "Q4_K_M",
+      "featured": false,
+      "source": {
+        "repository": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
+        "revision": "52e7645ba7c309695bec7ac98f4f005b139cf465",
+        "upstream_publisher": "TinyLlama",
+        "conversion_publisher": "TheBloke",
+        "license": "Apache-2.0",
+        "license_review": "cleared",
+        "license_review_scope": "source_link_only"
+      },
+      "artifacts": [
+        {
+          "name": "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
+          "role": "mobile_runtime",
+          "format": "GGUF Q4_K_M",
+          "size_bytes": 668788096,
+          "sha256": "9fecc3b3cd76bba89d504f29b616eedf7da85b96540e490ca5824d3f7d2776a0",
+          "distribution": "external",
+          "source_url": "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/52e7645ba7c309695bec7ac98f4f005b139cf465/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf?download=true"
+        }
+      ],
+      "declared_capabilities": {
+        "inputs": [
+          "text"
+        ],
+        "outputs": [
+          "text"
+        ],
+        "backends": [
+          "llama.cpp"
+        ],
+        "unsupported": [
+          "image_input",
+          "audio_input",
+          "video_input",
+          "audio_output"
+        ]
+      },
+      "verified_capabilities": {
+        "inputs": [],
+        "outputs": [],
+        "backends": [],
+        "status": "unverified",
+        "scopes": []
       },
       "distribution": {
         "mode": "upstream_link",

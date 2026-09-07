@@ -14,6 +14,7 @@
   <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-native%20app-7F52FF?style=flat-square" />
   <img alt="llama.cpp" src="https://img.shields.io/badge/llama.cpp-JNI%20backend-43D1E8?style=flat-square" />
   <img alt="GGUF" src="https://img.shields.io/badge/GGUF-models-6B8CFF?style=flat-square" />
+  <a href="https://github.com/Harzva/mobile-model-playground"><img alt="Mobile Model Playground: 24 catalog models" src="https://img.shields.io/badge/Model%20Playground-24%20models-2555FF?style=flat-square" /></a>
   <img alt="OpenAI compatible" src="https://img.shields.io/badge/API-OpenAI%20compatible-111827?style=flat-square" />
   <img alt="Release" src="https://img.shields.io/badge/release-v0.1.4--rc9-2555FF?style=flat-square" />
 </p>
@@ -24,6 +25,7 @@ Latest Android prerelease: [TuiMa 0.1.4 RC9](https://github.com/Harzva/mobilecor
   <a href="#quick-start">Quick Start</a> ·
   <a href="#api">API</a> ·
   <a href="#benchmarks">Benchmarks</a> ·
+  <a href="#mobile-model-playground">Model Playground</a> ·
   <a href="game-web/README.md">TuiMa Game</a> ·
   <a href="android-app/README.md">Android Guide</a> ·
   <a href="ROADMAP.md">Roadmap</a>
@@ -51,6 +53,27 @@ It is designed to sit below MobileCode or any other mobile app that wants to cal
 | Recommendations | `/v1/recommendations?preference=speed\|stability\|small` uses device probing, GGUF metadata, scoring config, and stored benchmark history |
 | Benchmarks | Records prompt eval time, first token latency, decode loop time, total time, tok/s, prompt tokens, completion tokens, and memory peak |
 | TuiMa Push Game | Static React/Vite MVP in `game-web/` with an 8x8 push-model board, MobileCore localhost speed calls, signed result checks, Supabase-ready shared leaderboard, local fallback entries, and custom board JSON flow |
+
+## Mobile Model Playground
+
+[**Browse the model catalog →**](https://github.com/Harzva/mobile-model-playground/blob/main/docs/MODEL_CATALOG.md) · [Adapt a model with the Skill](https://github.com/Harzva/mobile-model-playground/tree/main/skills/mobile-model-adaptation) · [Contribute a model or device result](https://github.com/Harzva/mobile-model-playground/blob/main/CONTRIBUTING.md)
+
+The current `main` source bundles **24 distinct model profiles**, expanded from 6. Open **Models → Mobile Model Playground** in an APK built from current `main` to browse them offline. The previously published RC9 APK retains its release-time catalog.
+
+| Model family | Profiles | Intended use |
+| --- | ---: | --- |
+| Qwen2.5 Instruct 0.5B / 1.5B / 3B | 3 | Multilingual chat |
+| Qwen2.5 Coder 0.5B / 1.5B / 3B and Math 1.5B | 4 | Code and mathematics |
+| Qwen3 0.6B / 1.7B / 4B | 3 | General chat and reasoning |
+| SmolLM2 135M / 360M / 1.7B and SmolLM3 3B | 4 | Compact text assistants |
+| TinyLlama 1.1B Chat | 1 | Small chat baseline |
+| Gemma 3 270M / 1B | 2 | Compact text candidates; license gate applies |
+| LiquidAI LFM2 350M / 700M / 1.2B | 3 | Small edge-model candidates; license review pending |
+| SmolVLM 256M / 500M, Qwen3.5 0.8B, Qwen2.5-Omni 3B | 4 | Image/text or image/audio/text input, with complete declared projector bundles |
+
+Each profile pins its upstream conversion repository, immutable revision, artifact bytes and SHA-256, converter attribution, and declared modalities. **Catalog inclusion does not mean all 24 have passed phone testing.** Cards distinguish source-locked candidates, host tests, emulator tests, license restrictions, and failed quality checks; installation remains gated by the existing verified-download policy. Third-party conversions retain their original converter attribution. Harzva's own Qwen3 0.6B conversion is available on [Hugging Face](https://huggingface.co/harzva/mobilecore-qwen3-0.6b-gguf) and [GitCode](https://gitcode.com/harzva/mobilecore-qwen3-0.6b-gguf).
+
+欢迎开源贡献者提交 PR：固定来源的模型条目、可复现转换配方、主机/模拟器/真机验证与失败案例都可以贡献。
 
 ## Visual Proof
 
